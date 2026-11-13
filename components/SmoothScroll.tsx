@@ -1,83 +1,50 @@
 "use client";
+// Lenis no MESMO gsap.ticker (lib/loop); sem ScrollTrigger (o plugin mantém um rAF próprio) — o progresso é lido no ticker: documento em /, /about, /resume; wrapper interno no painel do Works.
+// Nunca no canvas do Featured/Full. Reduced-motion = scroll nativo. Um registro global permite ao QA contar instâncias.
+import { type RefObject, useEffect } from "react";
 import Lenis from "lenis";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
-import { gsap, ScrollTrigger } from "@/lib/gsap";
-import { holdScroll, releaseScroll, setLenisStore } from "@/lib/lenis-store";
-import { initTier, useTier } from "@/lib/tier";
+import { addTick } from "@/lib/loop";
+import { reducedMotion } from "@/lib/motion";
+import { ui } from "@/lib/store";
 
-const LenisCtx = createContext<Lenis | null>(null);
-export const useLenis = () => useContext(LenisCtx);
+type Reg = { lenis: Lenis; key: string }[];
+declare global {
+  interface Window {
+    __lenis?: Reg;
+  }
+}
 
-/**
- * Único controlador de smooth scroll (Lenis), persistente no layout (v4 §1). Relógio = ticker do GSAP e cada
- * scroll atualiza o ScrollTrigger. Desligado em reduced-motion e em /curriculo (scroll nativo, impressão); em
- * /works modo grade a própria página chama stop(). O stop() de 3300 ms vale só na intro do 1º carregamento.
- */
-export default function SmoothScroll({ children }: { children: ReactNode }) {
-  const [lenis, setLenis] = useState<Lenis | null>(null);
-  const pathname = usePathname();
-  const tier = useTier();
-  // v5: tier low (lite) = scroll nativo. initTier() é síncrono e idempotente: decide antes do 1º Lenis.
-  const lite = tier === "low";
-  const enabled = !pathname.startsWith("/curriculo") && !lite;
-
+export function useLenis(wrapper?: RefObject<HTMLElement | null>, content?: RefObject<HTMLElement | null>, key = "document") {
   useEffect(() => {
-    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-    const refresh = () => ScrollTrigger.refresh();
-    document.fonts?.ready.then(refresh);
-    window.addEventListener("load", refresh);
-    // v5: a altura do documento muda depois da montagem (ex.: /about troca o acordeão por colunas no desktop);
-    // sem refresh, gatilhos ficavam além do fim da rolagem. Um refresh por mudança de altura, com debounce.
-    let t = 0;
-    let lastH = document.documentElement.scrollHeight;
-    const ro = new ResizeObserver(() => {
-      const h = document.documentElement.scrollHeight;
-      if (Math.abs(h - lastH) < 2) return;
-      lastH = h;
-      window.clearTimeout(t);
-      t = window.setTimeout(refresh, 250);
-    });
-    ro.observe(document.body);
-    return () => {
-      window.removeEventListener("load", refresh);
-      ro.disconnect();
-      window.clearTimeout(t);
+    if (reducedMotion()) return;
+    const w = wrapper?.current ?? undefined;
+    const c = content?.current ?? undefined;
+    if (wrapper && !w) return;
+    const lenis = new Lenis({ autoRaf: false, lerp: 0.1, wrapper: w ?? window, content: c ?? document.documentElement, anchors: false }); // âncoras tratadas pelo índice (SectionIndex)
+    const reg = (window.__lenis ??= []);
+    const entry = { lenis, key };
+    reg.push(entry);
+    const untick = addTick((t) => lenis.raf(t * 1000));
+    // documento: parado durante intro/overlays (overlays rolam nativo com data-lenis-prevent)
+    const sync = () => {
+      if (w) return;
+      const s = ui.get();
+      if (s.intro || s.menu || s.reel || s.profile) lenis.stop();
+      else lenis.start();
     };
-  }, []);
-
-  useEffect(() => {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced || !enabled || initTier().tier === "low") return;
-    const intro = document.documentElement.dataset.intro === "run";
-    if (intro) window.scrollTo(0, 0);
-    const l = new Lenis({ duration: 1.2, smoothWheel: true, syncTouch: false, autoRaf: false });
-    l.on("scroll", ScrollTrigger.update);
-    const tick = (t: number) => l.raf(t * 1000);
-    gsap.ticker.add(tick);
-    gsap.ticker.lagSmoothing(0);
-    setLenis(l);
-    setLenisStore(l);
-
-    let t: number | undefined;
-    if (intro && performance.now() < 3300) {
-      holdScroll("intro");
-      t = window.setTimeout(() => {
-        releaseScroll("intro");
-        ScrollTrigger.refresh();
-      }, Math.max(0, 3300 - performance.now()));
-    }
+    sync();
+    const unsub = ui.subscribe(sync);
     return () => {
-      if (t) {
-        clearTimeout(t);
-        releaseScroll("intro");
-      }
-      gsap.ticker.remove(tick);
-      l.destroy();
-      setLenis(null);
-      setLenisStore(null);
+      unsub();
+      untick();
+      lenis.destroy();
+      const i = reg.indexOf(entry);
+      if (i >= 0) reg.splice(i, 1);
     };
-  }, [enabled]);
+  }, [wrapper, content, key]);
+}
 
-  return <LenisCtx.Provider value={lenis}>{children}</LenisCtx.Provider>;
+export function SmoothScroll() {
+  useLenis();
+  return null;
 }

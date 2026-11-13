@@ -1,13 +1,14 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
+const config: NextConfig = {
   output: "export",
-  // Diretório de build configurável (v4): `NEXT_DIST_DIR=.next-build npm run build` não toca no `.next` de um
-  // `next dev` aberto. Nesse modo o export estático é gravado dentro de `.next-build` (copiar para out/).
-  distDir: process.env.NEXT_DIST_DIR || ".next",
-  reactStrictMode: true,
+  trailingSlash: true,
   images: { unoptimized: true },
-  trailingSlash: false,
+  reactStrictMode: true,
+  poweredByHeader: false,
+  devIndicators: false,
+  // etapa 6: CSS embutido no HTML (o .css de 64 KB bloqueava a 1ª pintura ~1,2 s no celular simulado)
+  experimental: { inlineCss: true },
 };
 
-export default nextConfig;
+export default config;

@@ -1,66 +1,36 @@
 import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/inter-tight";
-import "@fontsource-variable/inter";
-import "@fontsource/unifrakturmaguntia";
 import "@fontsource-variable/martian-mono/standard.css";
-import "@fontsource/rubik-bubbles";
+import "@fontsource/unifrakturmaguntia";
 import "@fontsource-variable/big-shoulders-display";
 import "./globals.css";
-import "./v3.css";
-import "./v4.css";
-import { EN, fmt } from "@/lib/i18n/dict";
-import { countWord } from "@/lib/projects";
-import { ROBOTS_INDEX, SITE_URL } from "@/lib/site";
-import Providers from "@/components/Providers";
+import { Shell } from "@/components/shell/Shell";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(SITE_URL),
-  alternates: { canonical: "/" },
-  title: EN.meta.home.title,
-  description: fmt(EN.meta.home.description, { count: countWord("en") }),
-  authors: [{ name: "Lucas Melo", url: "https://github.com/lucshllw" }],
-  // Indexação controlada em lib/site.ts.
-  robots: { index: ROBOTS_INDEX, follow: ROBOTS_INDEX },
-  icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "16x16 32x32 48x48" },
-      { url: "/brand/icon.svg", type: "image/svg+xml" },
-      { url: "/brand/favicon-32.png", sizes: "32x32", type: "image/png" },
-      { url: "/brand/icon-512.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: "/brand/apple-icon-180.png",
-  },
-  openGraph: {
-    title: EN.meta.home.title,
-    description: fmt(EN.meta.home.description, { count: countWord("en") }),
-    type: "website",
-    url: "/",
-    locale: "en_US",
-    alternateLocale: ["pt_BR"],
-    images: [{ url: "/brand/og-lucas-melo.jpg", width: 1200, height: 630, alt: "Lucas Melo's avatar" }],
-  },
-  twitter: { card: "summary_large_image", title: EN.meta.home.title, description: fmt(EN.meta.home.description, { count: countWord("en") }), images: ["/brand/og-lucas-melo.jpg"] },
+  title: "Lucas Melo — Creative Developer",
+  description:
+    "Portfolio of Lucas Melo, a creative developer and full-stack developer from Brazil: data, APIs, interfaces and motion. Eight live projects.",
+  icons: { icon: "/brand/favicon.ico", apple: "/brand/apple-icon-180.png" },
+  openGraph: { images: ["/brand/og-lucas-melo.jpg"], type: "website" },
 };
 
-export const viewport: Viewport = {
-  themeColor: "#000000",
-  width: "device-width",
-  initialScale: 1,
-};
+export const viewport: Viewport = { themeColor: "#000000", colorScheme: "dark" };
 
-// Head script v4 (antes da 1ª pintura): html.js; idioma — v5: só em /curriculo — (?lang → lm-lang → cv-lang → en; PT grava html.lang e
-// data-lang-pending, que esconde o texto EN até o React aplicar o PT, com trava CSS de 1,2 s); tier inicial
-// (?tier → reduced → sessão); intro só no 1º carregamento de "/" sem reduced-motion, ancorada na navegação.
-const headScript = `try{var d=document.documentElement;d.classList.add('js');var Q=new URLSearchParams(location.search);var L='en';try{var q=Q.get('lang');if(q==='pt'||q==='en')L=q;else{var s=localStorage.getItem('lm-lang')||localStorage.getItem('cv-lang');if(s==='pt'||s==='en')L=s}}catch(e){}if(L==='pt'&&location.pathname.indexOf('/curriculo')===0){d.lang='pt-BR';d.dataset.lang='pt';d.dataset.langPending='1'}var rm=matchMedia('(prefers-reduced-motion: reduce)').matches;try{var tq=Q.get('tier');if(tq)d.dataset.tier=tq;else if(rm)d.dataset.tier='reduced';else{var ts=JSON.parse(sessionStorage.getItem('lm-tier')||'null');if(ts&&ts.tier)d.dataset.tier=ts.tier}}catch(e){}var hp=location.pathname==='/'||location.pathname==='/index.html';if(hp&&!rm&&scrollY<10&&!location.hash){d.dataset.intro='run';var R=/^(fadeIn|fadeOut|dropIn|preloaderGone|lmRise|lmHeader)$/,n=0;var f=function(){var a=document.getAnimations?document.getAnimations().filter(function(x){return R.test(x.animationName)}):[];if(a.length<6&&n++<60)return requestAnimationFrame(f);a.forEach(function(x){x.startTime=0});d.dataset.introAnchored=String(a.length)};requestAnimationFrame(f)}}catch(e){}`;
+// Antes da pintura: classes js / gl (WebGL2 disponível e não desligado por ?webgl=0) / rm (reduced-motion).
+const BOOT = `(function(){var d=document.documentElement;d.classList.add('js');try{if(/[?&]webgl=0/.test(location.search))throw 0;var L=null;try{var q=location.search.match(/[?&]lite=([01])/);if(q)localStorage.setItem('rito-lite',q[1]);L=localStorage.getItem('rito-lite');}catch(e){}var c=document.createElement('canvas'),g=c.getContext('webgl2');if(g){d.classList.add('gl');var soft=false;try{var di=g.getExtension('WEBGL_debug_renderer_info');var rn=di?String(g.getParameter(di.UNMASKED_RENDERER_WEBGL)):'';soft=/swiftshader|llvmpipe|softpipe|basic render|microsoft basic|software/i.test(rn);if(!soft){var c2=document.createElement('canvas'),g2=c2.getContext('webgl2',{failIfMajorPerformanceCaveat:true});if(!g2)soft=true;else{var x2=g2.getExtension('WEBGL_lose_context');x2&&x2.loseContext();}}}catch(e){}var n=navigator,low=(n.deviceMemory||8)<=2||(n.hardwareConcurrency||8)<=2;if(L==='1'||(L!=='0'&&(soft||low)))d.classList.add('lite');var x=g.getExtension('WEBGL_lose_context');x&&x.loseContext();}}catch(e){}if(matchMedia('(prefers-reduced-motion: reduce)').matches)d.classList.add('rm');var f=function(){d.classList.add('fr')};document.fonts&&document.fonts.ready.then(f);setTimeout(f,2500);})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: headScript }} />
+        <script dangerouslySetInnerHTML={{ __html: BOOT }} />
       </head>
       <body>
-        <Providers>{children}</Providers>
+        <a className="skip" href="#main">
+          Skip to content
+        </a>
+        <Shell />
+        {children}
       </body>
     </html>
   );

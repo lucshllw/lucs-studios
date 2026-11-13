@@ -1,305 +1,493 @@
 "use client";
-// /works (parecer v4 §6): aplicação de uma tela em GRADE (Lenis parado, a grade consome wheel/pointer) e documento
-// rolável em LISTA. Estado na URL (?view=grid|list&filter=all|web|motion|3d) via replaceState. Sem JS: a lista.
-// GRID↔LIST com clones 2D (Flip.fit) porque Flip sobre preserve-3d não é confiável; reduced = crossfade 150 ms.
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLang } from "@/lib/i18n/provider";
-import { useTier, useTierGuard } from "@/lib/tier";
-import { gsap, Flip, isReduced, ScrollTrigger } from "@/lib/gsap";
-import { getLenis, holdScroll, releaseScroll } from "@/lib/lenis-store";
-import { fmt } from "@/lib/i18n/dict";
-import { countFor, filterProjects, FILTERS, frame, PROJECTS, TAG_LABEL, type Filter, type Project } from "@/lib/projects";
-import CurvedGrid, { type GridApi } from "./CurvedGrid";
-import WorksList, { type ListApi } from "./WorksList";
-import Scramble from "../Scramble";
-import { useSlideBar } from "@/lib/slidebar";
-import SiteFooter from "../SiteFooter";
+// Works (PROMPT-MESTRE §7): Featured (arco WebGL), Full (portal + índice), painel em /works/[slug].
+// Mora em app/works/layout.tsx, então persiste entre /works, /works/full e /works/[slug]; o estado vem da URL
+// (pushState no clique, botão voltar fecha). Sem WebGL (T0 ou ?webgl=0): grade/lista/painel em DOM puro.
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Pic } from "@/components/Pic";
+import { Panel, type PanelPhase } from "@/components/works/Panel";
+import { actions, ui, useUI } from "@/lib/store";
+import { reducedMotion, tier } from "@/lib/motion";
+import { PROJECTS, TAG_LABEL, TOTAL, bySlug, cardTexture, indexOf, videoSrc } from "@/lib/projects";
+import { getWorld, type LabelPt, type World } from "@/lib/world/World";
 
-type View = "grid" | "list";
-const pad = (n: number) => String(n).padStart(3, "0");
-
-function clone(src: string, r: DOMRect) {
-  const d = document.createElement("div");
-  d.className = "flip-clone";
-  Object.assign(d.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-  const im = document.createElement("img");
-  im.src = src;
-  im.alt = "";
-  d.appendChild(im);
-  document.body.appendChild(d);
-  return d;
+type View = "featured" | "full";
+function parse(path: string | null): { view: View; slug: string | null } {
+  const p = (path ?? "/works").replace(/\/+$/, "");
+  if (p.endsWith("/works/full")) return { view: "full", slug: null };
+  const m = p.match(/\/works\/([^/]+)$/);
+  if (m && bySlug(m[1])) return { view: "featured", slug: m[1] };
+  return { view: "featured", slug: null };
 }
 
-export default function WorksApp() {
-  const { t, lang } = useLang();
-  const w = t.works;
-  const tier = useTier();
-  const [view, setView] = useState<View>("list");
-  const [filter, setFilter] = useState<Filter>("all");
-  const [ready, setReady] = useState(false);
-  const [active, setActive] = useState<{ p: Project | null; i: number }>({ p: null, i: -1 });
-  const [entrance, setEntrance] = useState<"full" | "short" | "fade">("full");
-  const [announce, setAnnounce] = useState("");
-  const grid = useRef<GridApi>(null);
-  const list = useRef<ListApi>(null);
-  const busy = useRef(false);
-  const viewRef = useRef<HTMLDivElement>(null);
-  useSlideBar(viewRef, view);
-  const pending = useRef<{ kind: "toList" | "toGrid"; clones: { slug: string; el: HTMLElement }[] } | null>(null);
-  const projects = useMemo(() => filterProjects(filter), [filter]);
-  const visible = useMemo(() => new Set(projects.map((p) => p.slug)), [projects]);
+const panelRect = () => {
+  const inset = window.innerWidth < 768 ? 20 : 18;
+  return { x: inset, y: inset, w: window.innerWidth - inset * 2, h: window.innerHeight - inset * 2 };
+};
 
-  // estado inicial pela URL
+export function WorksApp() {
+  const pathname = usePathname();
+  const { view, slug } = parse(pathname);
+  const [gl, setGl] = useState(false);
+  const [panelSlug, setPanelSlug] = useState<string | null>(slug);
+  const [phase, setPhase] = useState<PanelPhase>("shown");
+  const [instant, setInstant] = useState(true);
+  const [fullIn, setFullIn] = useState(view === "full");
+  const [hoverName, setHoverName] = useState(-1);
+  const [live, setLive] = useState("");
+  const overlay = useUI((s) => s.menu || s.reel || s.profile);
+
+  const world = useRef<World | null>(null);
+  const labels = useRef<(HTMLAnchorElement | null)[]>([]);
+  const arrows = useRef<(HTMLSpanElement | null)[]>([]);
+  const prev = useRef<{ view: View; slug: string | null } | null>(null);
+  const pendingUV = useRef<{ i: number; uv: import("three").Vector2 | null } | null>(null);
+  const openedFrom = useRef<View>("featured");
+  const busy = useRef(false);
+  const userMoved = useRef(false);
+  const stage = useRef<HTMLDivElement>(null);
+
+  // ---- montagem: mundo WebGL (T1/T2) ou DOM puro (T0) ----
   useEffect(() => {
-    const q = new URLSearchParams(location.search);
-    const v = q.get("view");
-    const f = q.get("filter") as Filter | null;
-    setView(v === "grid" || v === "list" ? v : isReduced() ? "list" : "grid");
-    if (f && FILTERS.includes(f)) setFilter(f);
-    setReady(true);
+    const html = document.documentElement;
+    html.classList.add("route-works");
+    const t = tier();
+    let w: World | null = null;
+    if (t > 0) {
+      w = getWorld({ tier: t === 1 ? 1 : 2, reduced: reducedMotion() });
+      if (w && !w.cards.length) {
+        w.setItems(PROJECTS.map((p) => ({ slug: p.slug, texture: cardTexture(p), videos: videoSrc(p).filter((s) => !s.media) })));
+      }
+    }
+    if (w) {
+      world.current = w;
+      w.reduced = reducedMotion();
+      w.pointer.fine = matchMedia("(pointer: fine)").matches;
+      w.onLost = () => {
+        html.classList.remove("gl");
+        w?.setMode("off");
+        world.current = null;
+        setGl(false);
+      };
+      w.onCenter = (i) => {
+        if (userMoved.current) setLive(`Project ${i + 1} of ${TOTAL}: ${PROJECTS[i].name}`);
+      };
+      w.onLabels = (pts: LabelPt[]) => {
+        pts.forEach((p, i) => {
+          const a = labels.current[i];
+          const r = arrows.current[i];
+          if (a) {
+            a.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translateY(-100%) scale(${p.scale.toFixed(3)})`;
+            a.style.opacity = p.visible ? "1" : "0";
+            a.style.pointerEvents = p.visible ? "auto" : "none";
+          }
+          if (r) {
+            r.style.transform = `translate3d(${p.rx.toFixed(1)}px, ${p.ry.toFixed(1)}px, 0) translate(-100%, -100%) scale(${p.scale.toFixed(3)})`;
+            r.style.opacity = p.visible ? "1" : "0";
+          }
+        });
+      };
+      html.classList.add("gl-ready");
+      setGl(true);
+      const { view: v0, slug: s0 } = parse(window.location.pathname);
+      if (s0) w.goTo(indexOf(s0), true);
+      w.setMode(v0 === "full" ? "full" : "featured", !!s0);
+      if (v0 === "full") w.portalTo(true, 0);
+      if (s0) {
+        w.openCard(indexOf(s0), null, panelRect(), { instant: true });
+        w.covered = true;
+      }
+    }
+    const onResize = () => {
+      world.current?.resize();
+    };
+    const onVis = () => {
+      if (!world.current) return;
+      if (document.hidden) world.current.pauseVideos();
+      else world.current.resumeVideos();
+    };
+    window.addEventListener("resize", onResize);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      html.classList.remove("route-works", "gl-ready");
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", onVis);
+      if (w) {
+        w.onLabels = undefined;
+        w.onCenter = undefined;
+        w.thumbReset();
+        w.portalTo(false, 0);
+        if (w.openIndex >= 0) {
+          w.closeCard();
+        }
+        w.setMode("off");
+      }
+      world.current = null;
+      ui.set({ works: null, panel: null });
+    };
   }, []);
 
-  // /works?view=list#slug (links do /about): rola até a linha
+  // ---- abrir / fechar / trocar / portal: tudo derivado da URL ----
+  const closeTo = useCallback(() => {
+    const target = openedFrom.current === "full" ? "/works/full/" : "/works/";
+    window.history.pushState(null, "", target);
+  }, []);
+
   useEffect(() => {
-    if (!ready || view !== "list" || !location.hash) return;
-    const id = decodeURIComponent(location.hash.slice(1));
-    const t0 = window.setTimeout(() => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      const l = getLenis();
-      if (l) l.scrollTo(el, { offset: -80, immediate: true, force: true });
-      else el.scrollIntoView();
-    }, 350);
-    return () => window.clearTimeout(t0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+    actions.closePanel = closeTo;
+    return () => void (actions.closePanel = undefined);
+  }, [closeTo]);
 
-  // URL ← estado (sem navegação)
   useEffect(() => {
-    if (!ready) return;
-    const u = new URL(location.href);
-    u.searchParams.set("view", view);
-    u.searchParams.set("filter", filter);
-    u.searchParams.delete("lang");
-    if (u.href !== location.href) history.replaceState(history.state, "", u);
-  }, [view, filter, ready]);
-
-  // modo grade: Lenis parado e documento sem scroll
-  useEffect(() => {
-    if (!ready || view !== "grid") return;
-    const html = document.documentElement;
-    window.scrollTo(0, 0);
-    getLenis()?.scrollTo(0, { immediate: true, force: true });
-    holdScroll("works-grid");
-    html.classList.add("works-grid");
-    return () => {
-      html.classList.remove("works-grid");
-      releaseScroll("works-grid");
-      ScrollTrigger.refresh();
-    };
-  }, [view, ready]);
-
-  useTierGuard(ready && view === "grid", "grid");
-
-  // anúncio do ativo
-  useEffect(() => {
-    const p = active.p;
-    if (!p) return;
-    setAnnounce(fmt(w.announce, { name: p.name, year: p.year, tags: p.tags.map((x) => TAG_LABEL[x]).join(", ") }));
-  }, [active.p, w.announce]);
-
-  // fim das trocas com clones
-  useEffect(() => {
-    const pd = pending.current;
-    if (!pd) return;
-    if (pd.kind === "toList" && view === "list") {
-      pending.current = null;
-      requestAnimationFrame(() => {
-        const root = list.current?.root();
-        root?.classList.add("is-flipping");
-        pd.clones.forEach((c, i) => {
-          const th = list.current?.thumbFor(c.slug);
-          if (th) Flip.fit(c.el, th, { duration: 0.7, ease: "expo.inOut", delay: 0.1 + i * 0.04, absolute: true });
-        });
-        const masks = root?.querySelectorAll(".wl__row:not([style*='none']) .wl__mask > *");
-        if (masks?.length) {
-          gsap.fromTo(
-            masks,
-            { yPercent: 100 },
-            { yPercent: 0, duration: 0.7, ease: "expo.out", stagger: 0.05, delay: 0.35, clearProps: "transform" },
-          );
-        }
-        window.setTimeout(() => {
-          pd.clones.forEach((c) => c.el.remove());
-          root?.classList.remove("is-flipping");
-          ScrollTrigger.refresh();
-          busy.current = false;
-        }, 100 + pd.clones.length * 40 + 720);
-      });
-    } else if (pd.kind === "toGrid" && view === "grid") {
-      pending.current = null;
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          pd.clones.forEach((c, i) => {
-            const r = grid.current?.rectFor(c.slug);
-            if (!r) {
-              gsap.to(c.el, { opacity: 0, duration: 0.3, onComplete: () => c.el.remove() });
-              return;
-            }
-            gsap.to(c.el, {
-              left: r.left,
-              top: r.top,
-              width: r.width,
-              height: r.height,
-              duration: 0.6,
-              ease: "expo.inOut",
-              delay: i * 0.03,
-              onComplete: () => {
-                gsap.to(c.el, { opacity: 0, duration: 0.2, onComplete: () => c.el.remove() });
-              },
-            });
-          });
-          window.setTimeout(() => {
-            busy.current = false;
-          }, 850);
-        }),
-      );
-    }
-  }, [view]);
-
-  const switchView = async (next: View) => {
-    if (busy.current || next === view) return;
-    busy.current = true;
-    const main = document.querySelector<HTMLElement>("main.works");
-    if (isReduced()) {
-      await gsap.to(main, { opacity: 0, duration: 0.15, ease: "none" });
-      setEntrance("fade");
-      setView(next);
-      requestAnimationFrame(() => {
-        gsap.to(main, { opacity: 1, duration: 0.15, ease: "none", clearProps: "opacity" });
-        busy.current = false;
-      });
+    const before = prev.current;
+    prev.current = { view, slug };
+    ui.set({ works: view, panel: slug });
+    const w = world.current;
+    const reduced = reducedMotion();
+    const p = slug ? bySlug(slug) : null;
+    document.title = p ? `${p.name} — Lucas Melo` : view === "full" ? "Works, full index — Lucas Melo" : "Works — Lucas Melo";
+    if (!before) {
+      // primeira montagem: estado já aplicado no efeito acima (abre sem animação; fade 0,3 s)
+      if (slug) {
+        setInstant(true);
+        setPhase("in");
+      }
       return;
     }
-    if (next === "list") {
-      const items = projects.map((p) => ({ p, r: grid.current?.rectFor(p.slug) ?? null })).filter((x) => x.r && x.r.width > 0);
-      const clones = items.map((x) => ({ slug: x.p.slug, el: clone(frame(x.p, "shot"), x.r!) }));
-      await grid.current?.exit(300);
-      pending.current = { kind: "toList", clones };
-      setView("list");
-    } else {
-      window.scrollTo(0, 0);
-      getLenis()?.scrollTo(0, { immediate: true, force: true });
-      await new Promise((r) => requestAnimationFrame(r));
-      const clones = projects
-        .map((p) => {
-          const th = list.current?.thumbFor(p.slug);
-          const r = th?.getBoundingClientRect();
-          return r && r.bottom > 0 && r.top < window.innerHeight ? { slug: p.slug, el: clone(frame(p, "shot"), r) } : null;
-        })
-        .filter((x): x is { slug: string; el: HTMLDivElement } => !!x);
-      const rows = list.current?.root()?.querySelectorAll(".wl__row, .wl__head");
-      if (rows) await gsap.to(rows, { opacity: 0, duration: 0.25, ease: "none" });
-      pending.current = { kind: "toGrid", clones };
-      setEntrance("fade");
-      setView("grid");
+    const focusTitle = () => requestAnimationFrame(() => document.getElementById("project-title")?.focus({ preventScroll: true }));
+
+    // trocar painel (próximo projeto)
+    if (before.slug && slug && before.slug !== slug) {
+      if (w && openedFrom.current === "featured") w.swapOpen(indexOf(slug), panelRect());
+      setPanelSlug(slug);
+      setInstant(false);
+      setPhase("in");
+      focusTitle();
+      return;
+    }
+    // abrir
+    if (!before.slug && slug) {
+      const i = indexOf(slug);
+      busy.current = true;
+      openedFrom.current = before.view;
+      const pend = pendingUV.current;
+      pendingUV.current = null;
+      setPanelSlug(slug);
+      const show = () => {
+        setInstant(false);
+        setPhase("in");
+        busy.current = false;
+        if (w) w.covered = true;
+        focusTitle();
+      };
+      if (w && !reduced) {
+        setPhase("out"); // painel montado porém invisível até a carta chegar ao retângulo
+        if (before.view === "full") {
+          setFullIn(false);
+          if (w.thumb.a < 0.05) {
+            w.thumbTarget(window.innerWidth / 2, window.innerHeight / 2);
+            w.thumb.x = window.innerWidth / 2;
+            w.thumb.y = window.innerHeight / 2;
+          }
+          w.thumbShow(i);
+          w.thumbToPanel(panelRect()).then(show);
+        } else w.openCard(i, pend?.uv ?? null, panelRect()).then(show);
+      } else {
+        if (w && before.view === "featured") w.openCard(i, null, panelRect(), { instant: true });
+        if (before.view === "full") setFullIn(false);
+        setInstant(true);
+        setPhase("in");
+        busy.current = false;
+        focusTitle();
+      }
+      return;
+    }
+    // fechar
+    if (before.slug && !slug) {
+      const i = indexOf(before.slug);
+      busy.current = true;
+      setPhase("out");
+      const done = () => {
+        setPanelSlug(null);
+        busy.current = false;
+        if (view === "featured") requestAnimationFrame(() => labels.current[i]?.focus({ preventScroll: true }));
+      };
+      if (w) {
+        w.covered = false;
+        if (view === "full") {
+          w.thumbReset();
+          setTimeout(() => {
+            setFullIn(true);
+            done();
+          }, reduced ? 200 : 350);
+        } else {
+          w.closeCard().then(done);
+        }
+      } else {
+        if (view === "full") setFullIn(true);
+        setTimeout(done, 200);
+      }
+      return;
+    }
+    // Featured ↔ Full (portal-lente 0,4 s)
+    if (before.view !== view && !slug) {
+      if (view === "full") {
+        if (w) {
+          w.setMode("full");
+          w.portalTo(true).then(() => setFullIn(true));
+        } else setFullIn(true);
+      } else {
+        setFullIn(false);
+        w?.thumbShow(-1);
+        if (w) {
+          w.mode = "featured";
+          w.portalTo(false).then(() => w.resumeVideos());
+        }
+      }
+    }
+  }, [view, slug]);
+
+  // ---- entrada: wheel / drag / clique / teclado ----
+  useEffect(() => {
+    if (!gl) return;
+    const el = stage.current;
+    const w = world.current;
+    if (!el || !w) return;
+    let down: { x: number; y: number; t: number; id: number } | null = null;
+    let moved = false;
+    const axisP = (e: PointerEvent) => (w.L.axis === 0 ? e.clientX : e.clientY);
+
+    const onWheel = (e: WheelEvent) => {
+      if (ui.get().panel || ui.get().menu || ui.get().reel || ui.get().profile) return;
+      if (parse(window.location.pathname).view !== "featured") return;
+      e.preventDefault();
+      userMoved.current = true;
+      const k = e.deltaMode === 1 ? 16 : 1;
+      w.wheel(e.deltaX * k, e.deltaY * k);
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0 || ui.get().panel) return;
+      down = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+      moved = false;
+      if (parse(window.location.pathname).view === "featured") {
+        w.dragStart(axisP(e));
+        el.setPointerCapture(e.pointerId);
+        document.documentElement.classList.add("grabbing");
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      w.setPointer(e.clientX, e.clientY, true);
+      if (!down) return;
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) moved = true;
+      if (moved) {
+        userMoved.current = true;
+        w.dragMove(axisP(e));
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!down) return;
+      document.documentElement.classList.remove("grabbing");
+      const wasClick = !moved && performance.now() - down.t < 600;
+      down = null;
+      if (wasClick) {
+        w.dragging = false;
+        const hit = w.pick(e.clientX, e.clientY);
+        if (hit) openProject(hit.i, hit.uv);
+        else w.snap();
+      } else w.dragEnd();
+    };
+    const onLeave = () => w.setPointer(-1, -1, false);
+    const onKey = (e: KeyboardEvent) => {
+      const s = ui.get();
+      if (s.menu || s.reel || s.profile || s.panel) return;
+      if (parse(window.location.pathname).view !== "featured") return;
+      const t = e.target as HTMLElement;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      const vertical = w.L.axis === 1;
+      const prevK = vertical ? ["ArrowUp", "ArrowLeft"] : ["ArrowLeft"];
+      const nextK = vertical ? ["ArrowDown", "ArrowRight"] : ["ArrowRight"];
+      let i = w.centerIndex;
+      if (prevK.includes(e.key)) i--;
+      else if (nextK.includes(e.key)) i++;
+      else if (e.key === "Home") i = 0;
+      else if (e.key === "End") i = TOTAL - 1;
+      else if (e.key === "Enter" && !(t instanceof HTMLAnchorElement) && !(t instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        openProject(w.centerIndex, null);
+        return;
+      } else return;
+      e.preventDefault();
+      userMoved.current = true;
+      w.goTo(Math.max(0, Math.min(TOTAL - 1, i)));
+    };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    document.addEventListener("pointerleave", onLeave);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      el.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.removeEventListener("pointerleave", onLeave);
+      window.removeEventListener("keydown", onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gl]);
+
+  // Esc fecha o painel (Shell trata menu/reel/profile)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const s = ui.get();
+      if (s.menu || s.reel || s.profile) return;
+      if (s.panel) closeTo();
+      else if (parse(window.location.pathname).view === "full") window.history.pushState(null, "", "/works/");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [closeTo]);
+
+  const openProject = (i: number, uv: import("three").Vector2 | null) => {
+    if (busy.current || ui.get().panel) return;
+    pendingUV.current = { i, uv };
+    window.history.pushState(null, "", `/works/${PROJECTS[i].slug}/`);
+  };
+
+  const onNext = useCallback(() => {
+    const p = bySlug(ui.get().panel);
+    if (!p || busy.current) return;
+    busy.current = true;
+    setPhase("next-out");
+    const nxt = PROJECTS[(indexOf(p.slug) + 1) % TOTAL];
+    setTimeout(
+      () => {
+        busy.current = false;
+        window.history.pushState(null, "", `/works/${nxt.slug}/`);
+      },
+      reducedMotion() ? 200 : 350
+    );
+  }, []);
+
+  // ---- Full: miniatura segue o cursor; arrastar gira em 3D ----
+  const fullMove = (e: React.PointerEvent) => {
+    const w = world.current;
+    if (!w) return;
+    w.thumbTarget(e.clientX, e.clientY - 20);
+    if (e.buttons === 1 && !reducedMotion()) {
+      w.thumb.rotDrag.y = Math.max(-0.35, Math.min(0.35, w.thumb.rotDrag.y + e.movementX * 0.006));
+      w.thumb.rotDrag.x = Math.max(-0.35, Math.min(0.35, w.thumb.rotDrag.x - e.movementY * 0.006));
     }
   };
 
-  const changeFilter = (f: Filter) => {
-    if (f === filter) return;
-    setFilter(f);
-  };
-
-  const total = projects.length;
-  const idx = active.p ? projects.indexOf(active.p) + 1 : 0;
+  const panelProject = bySlug(panelSlug);
+  const featuredHidden = view !== "featured";
 
   return (
-    <>
-      <main id="content" tabIndex={-1} className="works" data-view={view} data-ready={ready}>
-        <header className="works__head">
-          <h1 className="works__h1" tabIndex={-1}>
-            <span className="black">{w.h1}</span>
-            <span className="works__h1n mono">({String(total).padStart(2, "0")})</span>
-          </h1>
-        </header>
-        {ready && view === "grid" && (
-          <section className="works__gridwrap" aria-label={w.index}>
-            <CurvedGrid
-              ref={grid}
-              projects={projects}
-              tier={tier}
-              entrance={entrance}
-              hint={w.hint}
-              hintTouch={w.hintTouch}
-              onActive={(p, i) => setActive({ p, i })}
-            />
-            <div className="hud">
-              <div className="hud__center" aria-hidden="true">
-                <span className="hud__name">{active.p ? `${active.p.name.toUpperCase()} · ${active.p.year}` : ""}</span>
-                <span className="hud__stack mono">{active.p ? active.p.stack.join(" · ") : ""}</span>
-              </div>
-              <p className="hud__count mono" aria-hidden="true">
-                <Scramble text={`↳ ${pad(idx)} / ${pad(total)}`} />
-              </p>
-              <nav className="hud__index" aria-label={w.index}>
-                <ul>
-                  {projects.map((p) => (
-                    <li key={p.slug}>
-                      <a
-                        href={p.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="hud__idx mono"
-                        onFocus={() => grid.current?.focusProject(p.slug)}
-                      >
-                        {p.n} {p.name} — {w.open}
-                        <span className="sr-only"> {t.a11y.newTab}</span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </nav>
-              <p className="sr-only" aria-live="polite">
-                {announce}
-              </p>
-            </div>
-          </section>
-        )}
-        {view === "list" && (
-          <section className="works__list" aria-label={w.view.list}>
-            <WorksList ref={list} visible={visible} tier={tier} key={lang === "pt" ? "l-pt" : "l-en"} />
-          </section>
-        )}
-      </main>
-      {view === "list" && <SiteFooter />}
-      <div className="works-bar" role="toolbar" aria-label={`${w.filters.label} · ${w.view.label}`}>
-        <div className="wb__filters" role="group" aria-label={w.filters.label}>
-          {FILTERS.map((f) => (
-            <button key={f} type="button" className="wb__f mono" aria-pressed={filter === f} onClick={() => changeFilter(f)}>
-              <span className="wb__dot" aria-hidden="true" />
-              {w.filters[f]} ({String(countFor(f)).padStart(2, "0")})
-            </button>
+    <div className={`works view-${view}${overlay ? " has-overlay" : ""}`}>
+      <h1 className="sr-only">{view === "full" ? "Works — full index" : "Works — featured projects"}</h1>
+
+      {/* espelho DOM: visível no T0 (sem WebGL/JS); com WebGL os rótulos projetados assumem o papel */}
+      <section className="works-mirror" aria-label="Featured projects" hidden={featuredHidden && gl}>
+        <ol>
+          {PROJECTS.map((p) => (
+            <li key={p.slug}>
+              <Link href={`/works/${p.slug}/`} className="mirror-card" scroll={false}>
+                <Pic project={p} shot={p.shots[0]} sizes="(max-width: 767px) calc(100vw - 40px), 33vw" alt="" className="mirror-pic" fallbackWidth={828} />
+                <span className="mirror-n">{p.n}</span>
+                <span className="mirror-name">{p.name}</span>
+                <span className="mirror-meta">
+                  {p.year} · {p.tags.map((t) => TAG_LABEL[t]).join(" · ")}
+                </span>
+              </Link>
+            </li>
           ))}
-        </div>
-        <div className="wb__right">
-          <span className="wb__count mono" aria-hidden="true">
-            {String(total).padStart(2, "0")} / {String(PROJECTS.length).padStart(2, "0")}
-          </span>
-          <div className="lt wb__view" role="group" aria-label={w.view.label} ref={viewRef}>
-            <span aria-hidden="true">[</span>
-            <button type="button" className="lt__btn wb__vbtn" aria-pressed={view === "grid"} onClick={() => switchView("grid")}>
-              {w.view.grid}
-            </button>
-            <span aria-hidden="true">/</span>
-            <button type="button" className="lt__btn wb__vbtn" aria-pressed={view === "list"} onClick={() => switchView("list")}>
-              {w.view.list}
-            </button>
-            <span aria-hidden="true">]</span>
-            <span className="lt__bar" aria-hidden="true" />
+        </ol>
+      </section>
+
+      {gl && (
+        <>
+          <div ref={stage} className="works-stage" aria-hidden="true" hidden={featuredHidden} />
+          <div className="card-labels" hidden={featuredHidden}>
+            {PROJECTS.map((p, i) => (
+              <a
+                key={p.slug}
+                ref={(el) => void (labels.current[i] = el)}
+                href={`/works/${p.slug}/`}
+                className="card-label"
+                aria-label={`${p.name} — project ${i + 1} of ${TOTAL}`}
+                onFocus={() => {
+                  userMoved.current = true;
+                  world.current?.goTo(i);
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  openProject(i, null);
+                }}
+              >
+                {p.name}
+              </a>
+            ))}
+            {PROJECTS.map((p, i) => (
+              <span key={p.slug} ref={(el) => void (arrows.current[i] = el)} className="card-arrow" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="9" height="9">
+                  <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" stroke="currentColor" strokeWidth="1.6" fill="none" />
+                </svg>
+              </span>
+            ))}
           </div>
-        </div>
-      </div>
-    </>
+        </>
+      )}
+
+      <section
+        className={`works-full${fullIn ? " is-in" : ""}`}
+        aria-label="Full index"
+        hidden={view !== "full"}
+        onPointerMove={fullMove}
+        onPointerLeave={() => {
+          setHoverName(-1);
+          world.current?.thumbShow(-1);
+        }}
+      >
+        <ul className={hoverName >= 0 ? "has-hover" : ""}>
+          {PROJECTS.map((p, i) => (
+            <li key={p.slug} className={hoverName === i ? "is-hover" : ""}>
+              <span className="mask">
+                <a
+                  href={`/works/${p.slug}/`}
+                  onPointerEnter={(e) => {
+                    setHoverName(i);
+                    world.current?.thumbTarget(e.clientX, e.clientY - 20);
+                    if (e.pointerType === "mouse") world.current?.thumbShow(i);
+                  }}
+                  onFocus={() => setHoverName(i)}
+                  onBlur={() => setHoverName(-1)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openProject(i, null);
+                  }}
+                  style={{ transitionDelay: `${i * 0.03}s` }}
+                >
+                  {p.name}
+                </a>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <p className="sr-only" aria-live="polite">
+        {live}
+      </p>
+
+      {panelProject && (
+        <Panel key={panelProject.slug} project={panelProject} phase={phase} instant={instant} onClose={closeTo} onNext={onNext} />
+      )}
+    </div>
   );
 }
