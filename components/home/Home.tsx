@@ -7,7 +7,8 @@ import { addTick } from "@/lib/loop";
 import { reducedMotion, tier } from "@/lib/motion";
 import { ui } from "@/lib/store";
 import { REEL, SITE } from "@/lib/site";
-import { PROJECTS, cardTexture } from "@/lib/projects";
+import { HERO_PROJECTS as PROJECTS, HERO_TOTAL as TOTAL, cardTexture } from "@/lib/projects";
+import { Hero2D, type Hero2DState } from "@/components/home/Hero2D";
 import { getWorld } from "@/lib/world/World";
 import { HeroLayer } from "@/lib/world/HeroLayer";
 import { HomeFooter } from "./HomeFooter";
@@ -49,6 +50,8 @@ export function Home() {
   const reelRef = useRef<HTMLElement>(null);
   const router = useRouter();
   const [gl, setGl] = useState(false);
+  const [m2, setM2] = useState(false); // 15/11: sem WebGL (hardware desligado) → hero em Canvas 2D + CSS 3D
+  const m2ref = useRef<Hero2DState>({ p: 0, emb: { x: 0, y: 0, r: 0 }, tilt: { x: 0, y: 0 } });
   const [stage, setStage] = useState(0);
   useInProgress(reelRef, undefined, 0.6);
 
@@ -107,14 +110,13 @@ export function Home() {
       cleanups.push(() => window.removeEventListener("resize", onResize));
 
       // ponteiro no palco do hero: lente, arrasto do dial (horizontal), clique (monólito → painel; vazio → pulso)
-      // toque: a lente aparece no ponto tocado; segurar ≥ 250 ms sem arrastar = lente segue o dedo;
-      // arrasto horizontal rápido = girar o anel; vertical = rolagem nativa (touch-action: pan-y)
-      let down: { x: number; y: number; t: number; mode: "pending" | "pending-mouse" | "ring" | "lens"; touch: boolean } | null = null;
+      // toque (15/11, pedido de Lucas): sem efeito de toque — nada de lente/pulso; arrasto horizontal rápido = girar o anel;
+      // vertical = rolagem nativa (touch-action: pan-y); toque curto num monólito abre o projeto
+      let down: { x: number; y: number; t: number; mode: "pending" | "pending-mouse" | "ring"; touch: boolean } | null = null;
       const onDown = (e: PointerEvent) => {
         if (e.button !== 0 || (e.target as HTMLElement).closest("button, a")) return;
         const touch = e.pointerType !== "mouse";
         down = { x: e.clientX, y: e.clientY, t: performance.now(), mode: touch ? "pending" : "pending-mouse", touch };
-        if (touch) hero!.pointerPx(e.clientX, e.clientY, true, e.pointerType);
         // mouse: o arrasto só começa após 6 px (um clique curto nunca gira o anel)
       };
       const onMove = (e: PointerEvent) => {
@@ -139,10 +141,9 @@ export function Home() {
           if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) && performance.now() - down.t < 250) {
             down.mode = "ring";
             hero!.dragStart(down.x);
-          } else if (performance.now() - down.t >= 250) down.mode = "lens";
+          }
         }
         if (down.mode === "ring") hero!.dragMove(e.clientX);
-        else hero!.pointerPx(e.clientX, e.clientY, true, e.pointerType);
       };
       const onUp = (e: PointerEvent) => {
         if (!down) return;
@@ -154,18 +155,11 @@ export function Home() {
           if (d.mode === "ring") hero!.dragEnd();
           return;
         }
-        if (d.touch) hero!.pointerPx(e.clientX, e.clientY, true, e.pointerType); // lente some ~1,2 s depois
         if (moved < 6 && performance.now() - d.t < 500) {
-          const i = hero!.click(e.clientX, e.clientY);
+          const i = hero!.click(e.clientX, e.clientY, !d.touch);
           if (i >= 0) router.push(`/works/${PROJECTS[i].slug}/`);
         }
       };
-      // toque longo vira lente: a partir daí o dedo não rola a página (touchmove ainda cancelável)
-      const onTouchMove = (e: TouchEvent) => {
-        if (down && down.touch && (down.mode === "lens" || (down.mode === "pending" && performance.now() - down.t >= 250)) && e.cancelable) e.preventDefault();
-      };
-      sticky.addEventListener("touchmove", onTouchMove, { passive: false });
-      cleanups.push(() => sticky.removeEventListener("touchmove", onTouchMove));
       const onLeave = (e: PointerEvent) => {
         if (e.pointerType === "mouse") hero!.pointerPx(-999, -999, false, "mouse");
       };
@@ -192,8 +186,14 @@ export function Home() {
       io.observe(el.querySelector(".home-stage")!);
       cleanups.push(() => io.disconnect());
     } else {
+      if (document.documentElement.classList.contains("m2d")) {
+        setM2(true);
+        el.classList.add("home-m2");
+      }
       window.dispatchEvent(new Event("rito:ready"));
     }
+    const m2d = !world && document.documentElement.classList.contains("m2d");
+    const embImg = el.querySelector<HTMLElement>(".hero-emblem");
 
     let lastFront = -1;
     let lastStage = -1;
@@ -211,7 +211,34 @@ export function Home() {
         lastStage = st;
         setStage(st);
       }
-      if (!hero) return;
+      if (!hero) {
+        if (!m2d || !embImg) return;
+        // modo 2D: mesma coreografia das palavras-chave em órbita, medida no emblema (img invisível, só geometria)
+        const sr = sticky.getBoundingClientRect();
+        const er = embImg.getBoundingClientRect();
+        const M = m2ref.current;
+        M.p = p;
+        M.emb = { x: er.left - sr.left + er.width / 2, y: er.top - sr.top + er.height / 2, r: er.width / 2 };
+        const narrow = innerWidth < 768;
+        const fade = 1 - Math.min(1, Math.max(0, (p - 0.28) / 0.2));
+        if (keys) {
+          keys.style.opacity = String(fade);
+          keys.style.visibility = fade < 0.02 ? "hidden" : "visible";
+          if (narrow) keys.style.transform = `translate3d(0, ${Math.round(Math.max(112, M.emb.y - M.emb.r - 104))}px, 0)`;
+          else keys.style.transform = "";
+        }
+        if (!narrow)
+          kws.forEach((w, i) => {
+            const o = ORBIT[i];
+            const a = (o.a * Math.PI) / 180 + Math.sin(_t * 0.25 + i) * 0.04;
+            const R = M.emb.r * 1.5 * o.d + 40;
+            const px = M.emb.x + Math.cos(a) * R + M.tilt.y * 18 * (o.d - 1) * 6;
+            const py = M.emb.y + Math.sin(a) * R * 0.78 + M.tilt.x * 12 * (o.d - 1) * 6 + Math.sin(_t * 0.9 + i * 1.3) * 4;
+            w.style.transform = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0) translate(-50%, -50%) scale(${o.d.toFixed(2)})`;
+          });
+        if (nameEl) nameEl.style.opacity = String(1 - Math.min(1, Math.max(0, (p - 0.55) / 0.2)));
+        return;
+      }
       const live3d = inView && !ui.get().reel;
       hero.active = live3d;
       hero.object.visible = live3d;
@@ -240,13 +267,13 @@ export function Home() {
       if (nameEl) nameEl.style.opacity = String(1 - Math.min(1, Math.max(0, (p - 0.55) / 0.2)));
       if (frontEl && hero.front !== lastFront) {
         lastFront = hero.front;
-        frontEl.textContent = `${String(hero.front + 1).padStart(2, "0")}/08 · ${PROJECTS[hero.front].name.toUpperCase()}`;
+        frontEl.textContent = `${String(hero.front + 1).padStart(2, "0")}/${String(TOTAL).padStart(2, "0")} · ${PROJECTS[hero.front].name.toUpperCase()}`;
       }
       if (tip) {
         const i = hero.hoverIdx;
         tip.style.opacity = i >= 0 ? "1" : "0";
         if (i >= 0) {
-          tip.textContent = `${String(i + 1).padStart(2, "0")}/08 · ${PROJECTS[i].name} — open →`;
+          tip.textContent = `${String(i + 1).padStart(2, "0")}/${String(TOTAL).padStart(2, "0")} · ${PROJECTS[i].name} — open →`;
           const pt = (hero as unknown as { ptr: { x: number; y: number } }).ptr;
           tip.style.transform = `translate3d(${pt.x + 18}px, ${pt.y + 14}px, 0)`;
         }
@@ -291,20 +318,30 @@ export function Home() {
   }, []);
 
   const STAGES = ["Signal · ASCII → real", "Dial · petals fall", "Emblem → reel"];
+  const M2_STAGES = ["Signal · ASCII → real", "Dial · drag the ring", "Emblem → reel"];
 
   return (
     <main id="main" tabIndex={-1} className="home" ref={main}>
       <div className="home-stage">
         <section className="hero" id="signal" aria-labelledby="hero-title" data-hero-scene>
           <div className="hero-sticky">
+            {m2 && (
+              <Hero2D
+                state={m2ref}
+                onFront={(i) => {
+                  const f = main.current?.querySelector(".hero-front");
+                  if (f) f.textContent = `${String(i + 1).padStart(2, "0")}/${String(TOTAL).padStart(2, "0")} · ${PROJECTS[i].name.toUpperCase()}`;
+                }}
+              />
+            )}
             {/* sem WebGL: emblema real + lista de projetos */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="hero-emblem" src="/brand/avatar-emblem.webp" alt="" aria-hidden="true" width={1024} height={1024} />
             <p className="hero-hud hl" aria-hidden="true">
-              <span className="dot">●</span> REC · <span className="hero-front">01/08 · ORINOCO</span>
+              <span className="dot">●</span> REC · <span className="hero-front">01/{String(TOTAL).padStart(2, "0")} · {PROJECTS[0].name.toUpperCase()}</span>
             </p>
             <p className="hero-hud hr" aria-hidden="true">
-              {gl ? <DecryptedText key={stage} text={STAGES[stage]} animateOn="view" speed={36} /> : STAGES[0]}
+              {gl || m2 ? <DecryptedText key={stage} text={m2 ? M2_STAGES[stage] : STAGES[stage]} animateOn="view" speed={36} /> : STAGES[0]}
             </p>
             <ul className="hero-keys" aria-label="What I do">
               {KEYWORDS.map((k, i) => (
@@ -360,7 +397,7 @@ export function Home() {
                 <span className="lbl l2">
                   <i /> REC · <span className="reel-tc">TC 00:00:00:00</span>
                 </span>
-                <span className="lbl l3">{REEL.duration} · 8 LIVE PROJECTS · NO SOUND</span>
+                <span className="lbl l3">{REEL.duration} · {TOTAL} LIVE PROJECTS · NO SOUND</span>
               </div>
             )}
             <button

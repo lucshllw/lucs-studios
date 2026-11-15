@@ -3,6 +3,3 @@ node_modules
 out
 *.tsbuildinfo
 next-env.d.ts
-qa
-_unused-public
-.claude

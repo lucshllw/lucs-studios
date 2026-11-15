@@ -11,6 +11,8 @@ import { actions, ui, useUI } from "@/lib/store";
 import { reducedMotion, tier } from "@/lib/motion";
 import { PROJECTS, TAG_LABEL, TOTAL, bySlug, cardTexture, indexOf, videoSrc } from "@/lib/projects";
 import { getWorld, type LabelPt, type World } from "@/lib/world/World";
+import { addTick } from "@/lib/loop";
+import { gsap } from "gsap";
 
 type View = "featured" | "full";
 function parse(path: string | null): { view: View; slug: string | null } {
@@ -45,6 +47,7 @@ export function WorksApp() {
   const pendingUV = useRef<{ i: number; uv: import("three").Vector2 | null } | null>(null);
   const openedFrom = useRef<View>("featured");
   const busy = useRef(false);
+  const mirror = useRef<HTMLElement>(null);
   const userMoved = useRef(false);
   const stage = useRef<HTMLDivElement>(null);
 
@@ -385,6 +388,69 @@ export function WorksApp() {
     }
   };
 
+  // 15/11 — modo 2D (sem WebGL / aceleração de hardware desligada): a grade ganha vida em DOM —
+  // entrada escalonada em 3D, inclinação pelo ponteiro (mouse), dobra pela velocidade da rolagem e paralaxe da imagem.
+  useEffect(() => {
+    const sec = mirror.current;
+    if (gl || !sec || !document.documentElement.classList.contains("m2d")) return;
+    sec.classList.add("m2-works");
+    const cards = Array.from(sec.querySelectorAll<HTMLElement>(".mirror-card"));
+    const pics = cards.map((c) => c.querySelector<HTMLElement>(".mirror-pic img"));
+    gsap.fromTo(
+      cards,
+      { opacity: 0, y: 70, rotateX: -28, transformOrigin: "50% 0%" },
+      { opacity: 1, y: 0, rotateX: 0, duration: 1.1, ease: "expo.out", stagger: 0.07, delay: 0.15, clearProps: "opacity,transform" }
+    );
+    const tilt = cards.map(() => ({ x: 0, y: 0, tx: 0, ty: 0 }));
+    const fine = matchMedia("(pointer: fine)").matches;
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
+      cards.forEach((c, i) => {
+        const r = c.getBoundingClientRect();
+        const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+        tilt[i].tx = inside ? ((e.clientY - r.top) / r.height - 0.5) * -10 : 0;
+        tilt[i].ty = inside ? ((e.clientX - r.left) / r.width - 0.5) * 12 : 0;
+      });
+    };
+    const onLeave = () => tilt.forEach((t) => (t.tx = t.ty = 0));
+    if (fine) {
+      sec.addEventListener("pointermove", onMove, { passive: true });
+      sec.addEventListener("pointerleave", onLeave);
+    }
+    let last = sec.scrollTop;
+    let vel = 0;
+    const untick = addTick((_t, dt) => {
+      if (document.hidden) return;
+      const st = sec.scrollTop;
+      const v = (st - last) / Math.max(dt, 1 / 120);
+      last = st;
+      vel += (v - vel) * Math.min(1, dt * 8);
+      const bend = Math.max(-7, Math.min(7, vel * 0.006));
+      const vh = sec.clientHeight;
+      cards.forEach((c, i) => {
+        const t = tilt[i];
+        t.x += (t.tx - t.x) * Math.min(1, dt * 9);
+        t.y += (t.ty - t.y) * Math.min(1, dt * 9);
+        const r = c.getBoundingClientRect();
+        if (r.bottom < -50 || r.top > vh + 150) return;
+        c.style.transform = `perspective(900px) rotateX(${(t.x - bend).toFixed(2)}deg) rotateY(${t.y.toFixed(2)}deg)`;
+        const img = pics[i];
+        if (img) {
+          const off = (r.top + r.height / 2 - vh / 2) / vh; // -1..1
+          img.style.transform = `translate3d(${(t.y * -0.8).toFixed(1)}px, ${(off * -14).toFixed(1)}px, 0) scale(1.12)`;
+        }
+      });
+    });
+    return () => {
+      untick();
+      sec.removeEventListener("pointermove", onMove);
+      sec.removeEventListener("pointerleave", onLeave);
+      sec.classList.remove("m2-works");
+      cards.forEach((c) => (c.style.transform = ""));
+      pics.forEach((p) => p && (p.style.transform = ""));
+    };
+  }, [gl]);
+
   const panelProject = bySlug(panelSlug);
   const featuredHidden = view !== "featured";
 
@@ -393,7 +459,7 @@ export function WorksApp() {
       <h1 className="sr-only">{view === "full" ? "Works — full index" : "Works — featured projects"}</h1>
 
       {/* espelho DOM: visível no T0 (sem WebGL/JS); com WebGL os rótulos projetados assumem o papel */}
-      <section className="works-mirror" aria-label="Featured projects" hidden={featuredHidden && gl}>
+      <section ref={mirror} className="works-mirror" aria-label="Featured projects" hidden={featuredHidden && gl}>
         <ol>
           {PROJECTS.map((p) => (
             <li key={p.slug}>

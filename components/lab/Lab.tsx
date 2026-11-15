@@ -162,7 +162,7 @@ export function Lab() {
           </div>
           {!gl && (
             <ul className="lab-note">
-              <li>The interactive relics need WebGL, which is unavailable here.</li>
+              <li>Without WebGL (hardware acceleration off) the relics run as a 2D particle study; enable it for the full corridor.</li>
               {RELICS.map((r) => (
                 <li key={r.id}>
                   <b>{r.name}</b> — {r.sub}

@@ -48,12 +48,15 @@ export const REEL = {
 /** Currículo em EN (direction/about-curriculo.md — tradução fiel do PDF de Lucas, sem fatos novos). */
 export const CV = {
   profile:
-    "Developer focused on web interfaces, motion and systems integration. I build corporate sites and portfolios that combine UI/UX, GSAP animation and WebGL/3D experiences. I work with React, Next.js and TypeScript, plus Node.js, PostgreSQL and Supabase for data and integrations — from the interface to deployment, with attention to responsiveness, accessibility and performance.",
+    "Creative and full-stack developer building web products end to end: brand sites, e-commerce, SaaS platforms and admin dashboards. I architect typed React/Next.js front-ends with real-time WebGL/3D and GSAP motion, and Node.js back-ends with PostgreSQL, REST APIs and JWT auth, shipped with attention to Core Web Vitals, accessibility and performance.",
   skills: [
-    { k: "Front-end", v: "React, Next.js, SvelteKit, TypeScript, JavaScript (ES6+), HTML5, CSS3, TailwindCSS." },
-    { k: "Motion & 3D", v: "GSAP (ScrollTrigger, Flip, timelines), Lenis, Three.js, React Three Fiber, WebGL, shaders, Canvas 2D." },
-    { k: "Back-end & data", v: "Node.js, PostgreSQL, Supabase (Auth, Storage), REST APIs, workflow automation." },
-    { k: "Delivery & quality", v: "Responsive layouts, technical SEO, accessibility, media optimization, Git/GitHub, deploys on Vercel and Netlify." },
+    { k: "Languages", v: "TypeScript, JavaScript (ES2023+), HTML5, CSS3, GLSL, SQL, Python." },
+    { k: "Front-end", v: "React 19, Next.js (App Router, SSG/static export), Vite, SvelteKit, Astro, TailwindCSS, CSS 3D, responsive and i18n UIs." },
+    { k: "Motion & 3D", v: "GSAP (ScrollTrigger, Flip, timelines), Lenis smooth scroll, Three.js, React Three Fiber, WebGL/WebGL2, custom GLSL shaders, post-processing, Canvas 2D, Blender (modelling, baking, glTF/meshopt), Remotion." },
+    { k: "Back-end & data", v: "Node.js, .NET (C#), REST API design, PostgreSQL, SQLite/Turso, JWT authentication, admin panels with uploads, serverless functions, Python automation and workflow integrations." },
+    { k: "AI & automation", v: "Multi-agent orchestration, LLM/AI workflow optimization, Python + AI automations for continuous pipelines." },
+    { k: "Performance & quality", v: "Core Web Vitals and Lighthouse, media pipelines (AVIF/WebP, H.264/VP9 via ffmpeg, sharp), GPU fallbacks, WCAG accessibility, technical SEO, Playwright QA." },
+    { k: "Tooling & delivery", v: "Git/GitHub, npm, Docker, Vercel, Netlify, DNS and custom domains, CI deploys." },
   ],
   education: [
     { inst: "FACENS University Center", course: "Systems Analysis and Development", status: "In progress · expected 2028" },

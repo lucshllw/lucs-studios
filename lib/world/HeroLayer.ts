@@ -505,9 +505,9 @@ export class HeroLayer implements WorldLayer {
     this.vel = 0;
   }
   /** clique: devolve o índice do monólito ou -1 (área vazia → pulso) */
-  click(x: number, y: number) {
+  click(x: number, y: number, pulse = true) {
     const i = this.pick(x, y);
-    if (i < 0) this.lens.pulse = 1;
+    if (i < 0 && pulse) this.lens.pulse = 1;
     return i;
   }
   private pick(x: number, y: number) {

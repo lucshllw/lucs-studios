@@ -528,24 +528,24 @@ ul {
 }
 /* sem JS ou sem WebGL: as 3 frases empilhadas, sem pin */
 html:not(.js) .hero,
-html:not(.gl) .hero {
+html:not(.gl):not(.m2d) .hero {
   height: auto;
 }
 html:not(.js) .hero-sticky,
-html:not(.gl) .hero-sticky {
+html:not(.gl):not(.m2d) .hero-sticky {
   position: relative;
   height: auto;
   min-height: 100svh;
   padding: 140px 6vw 120px;
 }
 html:not(.js) .hero-phrases,
-html:not(.gl) .hero-phrases {
+html:not(.gl):not(.m2d) .hero-phrases {
   gap: 0.5em;
   font-size: clamp(40px, 7vw, 96px);
   transform: none;
 }
 html:not(.js) .hero-phrase,
-html:not(.gl) .hero-phrase {
+html:not(.gl):not(.m2d) .hero-phrase {
   grid-area: auto;
   opacity: 1 !important;
 }
@@ -2588,6 +2588,9 @@ html.gl-ready .works-full {
 .hero-sticky {
   touch-action: pan-y;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent; /* 15/11: sem efeito de toque no Home (celular) */
+  -webkit-touch-callout: none;
 }
 .hero-emblem {
   position: absolute;
@@ -2738,11 +2741,11 @@ html.gl-ready .works-full {
   text-transform: uppercase;
   opacity: 0.5;
 }
-html:not(.gl) .hero,
+html:not(.gl):not(.m2d) .hero,
 html:not(.js) .hero {
   height: auto;
 }
-html:not(.gl) .hero-sticky,
+html:not(.gl):not(.m2d) .hero-sticky,
 html:not(.js) .hero-sticky {
   position: relative;
   height: auto;
@@ -2752,13 +2755,13 @@ html:not(.js) .hero-sticky {
   gap: 28px;
   padding: 120px var(--hud-x) 80px;
 }
-html:not(.gl) .hero-emblem,
+html:not(.gl):not(.m2d) .hero-emblem,
 html:not(.js) .hero-emblem {
   position: static;
   transform: none;
   width: min(320px, 70vw);
 }
-html:not(.gl) .hero-keys,
+html:not(.gl):not(.m2d) .hero-keys,
 html:not(.js) .hero-keys {
   position: static;
   display: flex;
@@ -2767,15 +2770,15 @@ html:not(.js) .hero-keys {
   gap: 6px;
   pointer-events: auto;
 }
-html:not(.gl) .kw,
+html:not(.gl):not(.m2d) .kw,
 html:not(.js) .kw {
   position: static;
 }
-html:not(.gl) .hero-name,
+html:not(.gl):not(.m2d) .hero-name,
 html:not(.js) .hero-name,
-html:not(.gl) .hero-hint,
+html:not(.gl):not(.m2d) .hero-hint,
 html:not(.js) .hero-hint,
-html:not(.gl) .hero-hud,
+html:not(.gl):not(.m2d) .hero-hud,
 html:not(.js) .hero-hud {
   position: static;
   transform: none;
@@ -3804,4 +3807,189 @@ html.js:not(.fr) .hero-keys {
 .intro-tab-black {
   font: 400 clamp(30px, 4.6vw, 72px) / 1 var(--f-black);
   margin-top: -0.1em;
+}
+
+/* ============================================================================================
+   15/11 — modo 2D (html.m2d): sem WebGL (aceleração de hardware desligada) e sem reduced-motion.
+   O hero mantém o palco fixo com o ASCII em Canvas 2D e um anel de monólitos em CSS 3D.
+   ============================================================================================ */
+.m2-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.home-m2 .hero-emblem {
+  opacity: 0; /* só geometria: o canvas desenha o emblema */
+}
+.home-m2 .hero-keys,
+.home-m2 .hero-name,
+.home-m2 .hero-hud,
+.home-m2 .hero-hint {
+  z-index: 2;
+}
+.home-m2 .dial-nav a:not(:focus) {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.home-m2 .dial-nav a:focus {
+  position: absolute;
+  z-index: 3;
+  right: var(--hud-x);
+  top: 130px;
+  background: #000;
+  border: 1px solid var(--c-ember);
+  padding: 8px 12px;
+  border-radius: 999px;
+}
+.m2-ring-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 46%;
+  z-index: 1;
+  perspective: 1100px;
+  perspective-origin: 50% 0%;
+  pointer-events: none;
+}
+.m2-ring {
+  --R: min(480px, 34vw);
+  --w: clamp(104px, 9.5vw, 150px);
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: translateZ(calc(var(--R) * -1)) rotateX(calc(-6deg + var(--ring-tx, 0deg))) rotateY(var(--ring-a, 0rad));
+  cursor: grab;
+  touch-action: pan-y;
+}
+.m2-ring.is-drag {
+  cursor: grabbing;
+}
+.m2-mon {
+  position: absolute;
+  left: calc(var(--w) / -2);
+  top: calc(var(--w) * -0.7);
+  width: var(--w);
+  height: calc(var(--w) * 1.4);
+  transform: rotateY(calc(var(--i) * 360deg / var(--n))) translateZ(var(--R));
+  display: block;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  background: #050505;
+  color: #fff;
+  text-decoration: none;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transition: border-color 0.3s, filter 0.3s;
+  filter: grayscale(1) brightness(0.55);
+}
+.m2-mon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 30% 50%;
+  pointer-events: none;
+}
+.m2-mon.is-front {
+  filter: none;
+  border-color: var(--c-ember, #ff2a2a);
+}
+.m2-mon-n,
+.m2-mon-name {
+  position: absolute;
+  left: 8px;
+  font: 500 9px/1.2 var(--f-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 3px 5px;
+  border-radius: 3px;
+}
+.m2-mon-n {
+  top: 8px;
+  color: var(--c-ember, #ff2a2a);
+}
+.m2-mon-name {
+  bottom: 8px;
+  right: 8px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .m2-mon:hover {
+    filter: none;
+    border-color: #fff;
+  }
+}
+@media (max-width: 767px) {
+  .m2-ring-wrap {
+    height: 40%;
+  }
+  .m2-ring {
+    --R: 40vw;
+    --w: 84px;
+    top: 24%;
+  }
+}
+html.m2d .home-m2 .hero {
+  height: 180svh; /* sem a coreografia 3D das pétalas: menos rolagem vazia */
+}
+.m2-works .mirror-card {
+  will-change: transform;
+  transform-style: preserve-3d;
+}
+.m2-works .mirror-pic {
+  display: block;
+  overflow: hidden;
+  border-radius: var(--card-radius);
+  position: relative;
+}
+.m2-works .mirror-pic img {
+  transform: scale(1.12);
+  transition: filter 0.4s;
+}
+.m2-works .mirror-pic::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.16) 50%, transparent 65%) no-repeat;
+  background-size: 260% 100%;
+  background-position: 120% 0;
+  transition: background-position 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .m2-works .mirror-card:hover .mirror-pic::after {
+    background-position: -40% 0;
+  }
+}
+.m2-works .mirror-card:hover .mirror-pic img {
+  filter: contrast(1.08) saturate(1.1);
+}
+.m2-print {
+  will-change: transform, clip-path;
+  transform-origin: 50% 50%;
+}
+.m2-desk {
+  will-change: transform;
+}
+.m2-lab {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.lab-nogl .lab-note li:first-child {
+  opacity: 0.55;
 }
