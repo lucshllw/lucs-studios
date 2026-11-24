@@ -24,55 +24,61 @@ const P = (p: Omit<Project, "shots">): Project => ({ ...p, shots: M[p.slug] ?? [
 
 export const PROJECTS: Project[] = [
   P({
-    n: "001", slug: "danz", name: "DanZ Editor", client: "DanZ — video editor & motion", year: "2026",
+    n: "001", slug: "aizawa", name: "Aizawa Studio", client: "Aizawa — MMV animator & editor", year: "2026",
+    url: "https://aizawastudio.vercel.app/", stack: ["React", "TS", "Vite", "Three.js", "GSAP", "Lenis", "Blender", "Node.js"], tags: ["web", "motion", "3d"],
+    kind: "Commission · MMV editor portfolio with a private admin",
+    built: "A lit door opens onto a real-time 3D corridor: every framed cover is an edit with its own sheet and player, an EXIT sign leads to a forest footer, plus a commissions form, a projects archive and an admin for the client to publish releases.",
+  }),
+  P({
+    n: "002", slug: "danz", name: "DanZ Editor", client: "DanZ — video editor & motion", year: "2026",
     url: "https://danzeditor.vercel.app/", stack: ["React", "TS", "Vite", "Three.js", "GSAP", "Lenis", "Node.js"], tags: ["web", "motion", "3d"],
     kind: "Commission · video editor portfolio with a private admin",
     built: "Retro VHS world in real-time 3D: tapes on a counter play muted previews on a CRT, a glitch tab intro, a tape library, commissions form and an admin for the client to publish on his own.",
   }),
   P({
-    n: "002", slug: "orinoco", name: "Orinoco", client: "Petroquímica Orinoco S/A", year: "2026",
+    n: "003", slug: "orinoco", name: "Orinoco", client: "Petroquímica Orinoco S/A", year: "2026",
     url: "https://orinoco-ind.vercel.app/", stack: ["HTML", "CSS", "JS", "GLSL", "Node"], tags: ["3d"],
     kind: "Industrial corporate site · Cascavel, BR",
     built: "Numbered intro, hero and brand catalogue — development and direction, with custom GLSL.",
   }),
   P({
-    n: "003", slug: "ado", name: "ADO Lavanderias", client: "ADO Limpeza", year: "2026",
+    n: "004", slug: "ado", name: "ADO Lavanderias", client: "ADO Limpeza", year: "2026",
     url: "https://ado-limpeza.vercel.app/", stack: ["Next.js", "React", "TS", "GSAP", "Lenis", "R3F"], tags: ["web", "motion", "3d"],
     kind: "Cleaning products and laundries",
     built: "Preloader, manifesto, product range and a laundry scene with WebGL water.",
   }),
   P({
-    n: "004", slug: "rio-uruguay", name: "Rio Uruguay", client: "Rio Uruguay Logística", year: "2026",
+    n: "005", slug: "rio-uruguay", name: "Rio Uruguay", client: "Rio Uruguay Logística", year: "2026",
     url: "https://rio-uruguay.vercel.app/", stack: ["React", "TS", "Vite"], tags: ["web"],
     kind: "Freight across southern Brazil and Mercosur",
     built: "Interactive coverage map with zoom and drag, in PT, ES and EN.",
   }),
   P({
-    n: "005", slug: "ikari", name: "Ikari Studio", client: "Ikari — 2D animator", year: "2026",
+    n: "006", slug: "ikari", name: "Ikari Studio", client: "Ikari — 2D animator", year: "2026",
     url: "https://www.ikari-studio.me/", stack: ["Front-end", "GSAP"], tags: ["web", "motion"],
     kind: "2D animation portfolio",
     built: "Front-end with a REC / 24 FPS opening, hero and commission tiers.",
   }),
   P({
-    n: "006", slug: "jorak", name: "Jorak", client: "Jorak — MMV & motion editor", year: "2026",
+    n: "007", slug: "jorak", name: "Jorak", client: "Jorak — MMV & motion editor", year: "2026",
     url: "https://jorakstudio.vercel.app/", hq: "/media/projects/jorak/desktop-1440.mp4", stack: ["Next.js", "React", "TS", "GSAP", "Three.js"], tags: ["web", "motion", "3d"],
     kind: "Editing and motion design portfolio",
     built: "Intro and a record collection that reveals the edits.",
   }),
   P({
-    n: "007", slug: "ohm", name: "Ohm Engenharia", client: "OHM Engenharia", year: "2026",
+    n: "008", slug: "ohm", name: "Ohm Engenharia", client: "OHM Engenharia", year: "2026",
     url: "https://ohm-engenharia.netlify.app/", stack: ["Astro", "TS", "GSAP", "Lenis", "Three.js"], tags: ["motion", "3d"],
     kind: "Electrical engineering and electronic security",
     built: "Interactive model of the Energy and Protection systems.",
   }),
   P({
-    n: "008", slug: "infernai", name: "InfernAI", client: "InfernAI — Guarulhos, BR", year: "2026",
+    n: "009", slug: "infernai", name: "InfernAI", client: "InfernAI — Guarulhos, BR", year: "2026",
     url: "https://infernai.com.br/", stack: ["HTML", "CSS", "JavaScript", "Canvas 2D"], tags: ["web"],
     kind: "Sites, AI scheduling and automations for small businesses · Guarulhos, BR",
     built: "Co-built with a second developer: static landing with a Canvas 2D particle hero, services, the FadeUp scheduling chat demo, pricing and FAQ.",
   }),
   P({
-    n: "009", slug: "mavell", name: "Mavell Studio", client: "Mavell Studio — independent website studio", year: "2026",
+    n: "010", slug: "mavell", name: "Mavell Studio", client: "Mavell Studio — independent website studio", year: "2026",
     url: "https://mavell-studio.netlify.app/", stack: ["Next.js", "GSAP", "ScrollTrigger", "Lenis", "Tailwind"], tags: ["web", "motion"],
     kind: "Website studio for local businesses and brands",
     built: "The studio's own site: hero, statement, a pinned horizontal showcase, services and a CSS 3D brand card you can drag and flip.",
@@ -80,8 +86,8 @@ export const PROJECTS: Project[] = [
 ];
 
 export const TOTAL = PROJECTS.length;
-/** 15/11 (Lucas): hero do Home sem a DanZ (só no Works), Mavell como 01, 8 projetos */
-export const HERO_PROJECTS: Project[] = [...PROJECTS.filter((p) => p.slug === "mavell"), ...PROJECTS.filter((p) => p.slug !== "mavell" && p.slug !== "danz")];
+/** 15/11 (Lucas): hero do Home sem a DanZ (só no Works), Mavell como 01, 8 projetos. 23/11: Aizawa entra só no Works (1º), DanZ 2º */
+export const HERO_PROJECTS: Project[] = [...PROJECTS.filter((p) => p.slug === "mavell"), ...PROJECTS.filter((p) => p.slug !== "mavell" && p.slug !== "danz" && p.slug !== "aizawa")];
 export const HERO_TOTAL = HERO_PROJECTS.length;
 export const TAG_LABEL = { web: "Web", motion: "GSAP", "3d": "3D" } as const;
 export const bySlug = (slug: string | null | undefined) => PROJECTS.find((p) => p.slug === slug);
@@ -89,8 +95,15 @@ export const indexOf = (slug: string) => PROJECTS.findIndex((p) => p.slug === sl
 export const nextOf = (p: Project) => PROJECTS[(PROJECTS.indexOf(p) + 1) % TOTAL];
 
 export const media = (p: Project) => `/media/projects/${p.slug}`;
+/** 23/11 (Lucas): vídeos regravados em 1920×1200 (telas ≥ 768 px) + 1280×800 com bitrate alto (celular e textura dos cards).
+ *  Projetos com `hq` (Jorak) mantêm o vídeo editado próprio. */
+const HD_MQ = "(min-width: 768px)";
 export const videoSrc = (p: Project): { src: string; type: string; media?: string }[] => [
   ...(p.hq ? [{ src: p.hq, type: "video/mp4", media: "(min-width: 2200px)" }] : []),
+  ...(p.hq ? [] : [
+    { src: `${media(p)}/desktop-hd.webm`, type: "video/webm", media: HD_MQ },
+    { src: `${media(p)}/desktop-hd.mp4`, type: "video/mp4", media: HD_MQ },
+  ]),
   { src: `${media(p)}/desktop.webm`, type: "video/webm" },
   { src: `${media(p)}/desktop.mp4`, type: "video/mp4" },
 ];

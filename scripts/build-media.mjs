@@ -19,6 +19,8 @@ const PICK = {
   infernai: [0, 1, 2, 3, 5, 7, 9],
   mavell: [0, 2, 4, 7, 8, 9],
   danz: [0, 2, 3, 4, 5, 6, 7],
+  // Aizawa (23/11): capturas 4K de aizawastudio.vercel.app — porta, corredor ×2, ficha, EXIT, floresta+footer, aba Projetos
+  aizawa: [0, 1, 2, 3, 4, 5, 6],
 };
 sharp.concurrency(4);
 const manifest = {};
