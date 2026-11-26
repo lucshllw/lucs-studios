@@ -83,6 +83,8 @@ export function Intro() {
     const dpr = Math.min(devicePixelRatio || 1, 2);
     const W = innerWidth;
     const H = innerHeight;
+    // 26/11: viewport ainda 0×0 (celular durante a carga / aba em segundo plano) → drawImage de canvas vazio lançava erro
+    if (W < 1 || H < 1) return;
     base.width = hot.width = Math.round(W * dpr);
     base.height = hot.height = Math.round(H * dpr);
     const ctx = base.getContext("2d")!;

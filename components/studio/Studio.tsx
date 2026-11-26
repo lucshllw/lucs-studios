@@ -1,6 +1,7 @@
 "use client";
 // /studio — WORKSHOP v3 (aprovado 13/11). Cena 3D do setup real no World único (StudioLayer); todo o conteúdo e
-// todas as ações existem também como HTML (botões, painéis, links) — sem WebGL a foto do setup substitui a cena.
+// todas as ações existem também como HTML (botões, painéis, links). Sem aceleração de hardware (WebGL por software
+// ou ausente) entra o MODO FILME (lib/studioFilm): quadros reais da cena, gravados com GPU, tocados em canvas 2D.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { addTick } from "@/lib/loop";
 import { reducedMotion, tier } from "@/lib/motion";
@@ -8,13 +9,15 @@ import { ui } from "@/lib/store";
 import { CV, SITE } from "@/lib/site";
 import { PROJECTS, cardTexture } from "@/lib/projects";
 import { getWorld } from "@/lib/world/World";
-import { HOT_LABEL, StudioLayer, type HotId } from "@/lib/world/StudioLayer";
+import { HOT_LABEL, StudioLayer, type HotId, type StudioEls } from "@/lib/world/StudioLayer";
+import { StudioFilm } from "@/lib/studioFilm";
 import { openReel } from "@/components/shell/ReelPlayer";
 import { useDialog } from "@/components/shell/useDialog";
 import { intro } from "@/components/shell/Intro";
-import { isLite } from "@/lib/perf";
 
 let layer: StudioLayer | null = null;
+/** modo filme (sem aceleração de hardware): quadros reais da cena em canvas 2D — uma instância por visita */
+let film: StudioFilm | null = null;
 const ORDER: HotId[] = ["reel", "works", "keyboard", "case", "folder", "phone", "lamp"];
 type PanelId = "stack" | "cv" | "wa" | null;
 
@@ -23,17 +26,14 @@ export function Studio() {
   const typer = useRef<HTMLInputElement>(null);
   const [panel, setPanel] = useState<PanelId>(null);
   const [live, setLive] = useState("");
-  const [gl, setGl] = useState(true);
   const [typing, setTyping] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
-  const [poster, setPoster] = useState(false);
-  const start3d = useRef<(() => void) | null>(null);
 
   const doAction = useCallback((id: HotId, rect: { x: number; y: number; w: number; h: number } | null) => {
     if (id === "reel") openReel(rect, 0);
     else if (id === "works") {
       setLive("Opening Works");
-      window.setTimeout(() => intro.go("/works/", "Works"), layer && !reducedMotion() ? 650 : 0);
+      window.setTimeout(() => intro.go("/works/", "Works"), (layer || film) && !reducedMotion() ? 650 : 0);
     } else if (id === "keyboard") {
       setTyping(true);
       setLive("Typing on the left monitor. Press Escape to stop.");
@@ -46,6 +46,7 @@ export function Studio() {
   const press = (id: HotId, el: HTMLElement) => {
     opener.current = el;
     if (layer && layer.object.visible) layer.act(id);
+    else if (film?.ok) film.act(id);
     else doAction(id, id === "reel" ? rectOf(el) : null);
   };
 
@@ -54,12 +55,60 @@ export function Studio() {
     const stage = el.querySelector<HTMLElement>(".st-stage")!;
     const reduced = reducedMotion();
     const t = tier();
-    const world = t > 0 ? getWorld({ tier: t === 1 ? 1 : 2, reduced }) : null;
+    // 26/11: WebGL por software (classe soft) ou sem WebGL → MODO FILME: os quadros gravados da cena real, com as
+    // mesmas interações. A foto do setup não existe mais em nenhum caminho.
+    const soft = document.documentElement.classList.contains("soft");
+    const world = t > 0 && !soft ? getWorld({ tier: t === 1 ? 1 : 2, reduced }) : null;
     const cleanups: (() => void)[] = [];
     if (!world) {
-      setGl(false);
-      window.dispatchEvent(new Event("rito:ready"));
-      return;
+      const F = new StudioFilm(stage, { reduced, captures: PROJECTS.map(cardTexture), names: PROJECTS.map((p) => p.name) });
+      film = F;
+      if (/[?&]cap=1/.test(location.search)) (window as unknown as { __film?: StudioFilm }).__film = F;
+      const els: StudioEls = {
+        label: el.querySelector(".st-label")!,
+        bar: el.querySelector(".st-load b")!,
+        barText: el.querySelector(".st-load span")!,
+        loader: el.querySelector(".st-load")!,
+        onAction: (id, rect) => {
+          if (id === "lamp") return;
+          doAction(id, rect);
+        },
+        onStatus: (s) => setLive(s),
+        onLoaded: () => setLive("Studio scene loaded"),
+      };
+      F.els = els;
+      el.classList.add("studio-gl");
+      const mv = (e: PointerEvent) => F.pointerMove(e.clientX, e.clientY, e.pointerType);
+      const dn = (e: PointerEvent) => {
+        F.pointerDown(e.clientX, e.clientY, e.pointerType);
+        stage.setPointerCapture?.(e.pointerId);
+      };
+      const up = (e: PointerEvent) => {
+        if (F.pointerUp(e.pointerType)) opener.current = stage;
+      };
+      const lv = () => F.pointerLeave();
+      stage.addEventListener("pointermove", mv);
+      stage.addEventListener("pointerdown", dn);
+      stage.addEventListener("pointerup", up);
+      stage.addEventListener("pointerleave", lv);
+      let cur = "";
+      const untick = addTick(() => {
+        const c = F.cursor();
+        if (c !== cur) {
+          stage.style.cursor = cur = c;
+          stage.dataset.cur = c === "pointer" ? "1" : "";
+          stage.dataset.curLabel = "";
+        }
+      });
+      return () => {
+        untick();
+        stage.removeEventListener("pointermove", mv);
+        stage.removeEventListener("pointerdown", dn);
+        stage.removeEventListener("pointerup", up);
+        stage.removeEventListener("pointerleave", lv);
+        F.dispose();
+        if (film === F) film = null;
+      };
     }
     const W = world;
     // chegando por transição (genie/intro curta), a criação da cena (PMREM, texturas, shaders) espera a cortina sair
@@ -70,18 +119,14 @@ export function Studio() {
       if (!alive || layer) return;
       layer = new StudioLayer(W, { reduced, captures: PROJECTS.map(cardTexture), names: PROJECTS.map((p) => p.name) });
       W.addLayer(layer);
+      // captura do modo filme (scripts/film-capture.mjs): expõe a camada só com ?cap=1
+      if (/[?&]cap=1/.test(location.search)) (window as unknown as { __studio?: StudioLayer }).__studio = layer;
       bind(layer);
     };
-    start3d.current = () => {
-      setPoster(false);
-      create();
-    };
     if (!layer) {
-      if (isLite()) {
-        // LITE (sem GPU / máquina lenta): pôster do setup + botão; a cena só é montada a pedido
-        setPoster(true);
-        window.setTimeout(() => window.dispatchEvent(new Event("rito:ready")), 0);
-      } else if (document.querySelector("#intro.is-short")) {
+      // 26/11 (Lucas): nada de foto do setup antes da cena — no LITE a cena monta direto (qualidade reduzida no StudioLayer);
+      // a foto só existe como conteúdo do modo sem WebGL (T0/m2d)
+      if (document.querySelector("#intro.is-short")) {
         const un = ui.subscribe(() => {
           if (!ui.get().intro) {
             un();
@@ -167,15 +212,8 @@ export function Studio() {
   const closePanel = useCallback(() => setPanel(null), []);
 
   return (
-    <main id="main" tabIndex={-1} className={`studio${gl && !poster ? "" : " studio-nogl"}`} ref={root}>
+    <main id="main" tabIndex={-1} className="studio" ref={root}>
       <div className="st-stage" aria-hidden="true" />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="st-fallback" loading="lazy" src="/studio/setup-lucas.webp" alt="Lucas Melo's real desk setup: two monitors, a PC case with RGB fans, keyboard, phone, folder and a red lamp" />
-      {poster && (
-        <button type="button" className="st-cta st-load3d" onClick={() => start3d.current?.()}>
-          Load 3D scene
-        </button>
-      )}
       <header className="st-head">
         <h1>Studio</h1>
         <p>The real desk, modelled and baked in Blender · move to look · drag to orbit · click the objects</p>
@@ -206,16 +244,16 @@ export function Studio() {
           if (e.key === "Escape") {
             e.preventDefault();
             e.stopPropagation();
-            layer?.exitType();
+            (film ?? layer)?.exitType();
             setTyping(false);
             setLive("Stopped typing");
             (opener.current ?? (document.getElementById("main") as HTMLElement))?.focus({ preventScroll: true });
-          } else if (e.key === "Backspace") layer?.type("\b");
-          else if (e.key.length === 1) layer?.type(e.key);
+          } else if (e.key === "Backspace") (film ?? layer)?.type("\b");
+          else if (e.key.length === 1) (film ?? layer)?.type(e.key);
         }}
         onInput={(e) => void ((e.target as HTMLInputElement).value = "")}
         onBlur={() => {
-          layer?.exitType();
+          (film ?? layer)?.exitType();
           setTyping(false);
         }}
       />

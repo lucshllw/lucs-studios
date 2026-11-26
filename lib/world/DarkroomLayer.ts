@@ -225,7 +225,8 @@ export class DarkroomLayer implements WorldLayer {
       this.born = time;
       this.resize();
     }
-    if (this.W !== this.world.vw || this.H !== this.world.vh) this.resize();
+    // 26/11: também quando o regulador SOFT muda a resolução (uPx = tamanho dos pontos)
+    if (this.W !== this.world.vw || this.H !== this.world.vh || this.shared.uPx.value !== this.world.renderer.getPixelRatio()) this.resize();
     const t = time - this.born;
     const red = this.reduced;
     const p = this.p;

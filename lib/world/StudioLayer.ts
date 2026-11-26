@@ -18,6 +18,7 @@ import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { Pass, FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
 import type { World, WorldLayer } from "./World";
+import { drawLeftScreen } from "./studioScreens";
 
 const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -81,10 +82,11 @@ class CameraBlurPass extends Pass {
   }
 }
 const FinalShader = {
-  uniforms: { tDiffuse: { value: null }, uT: { value: 0 } },
+  // uG: intensidade do grão (0 na captura do modo filme — lá o grão é uma camada viva por cima dos quadros)
+  uniforms: { tDiffuse: { value: null }, uT: { value: 0 }, uG: { value: 0.022 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.,1.); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uT; varying vec2 vUv; float h(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233))+uT)*43758.5453); }
-    void main(){ vec4 c=texture2D(tDiffuse,vUv); vec2 d=vUv-.5; float v=smoothstep(.85,.25,length(d*vec2(1.,.8))); c.rgb*=mix(.62,1.,v); c.rgb+=(h(vUv*1000.)-.5)*.022; gl_FragColor=c; }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uT,uG; varying vec2 vUv; float h(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233))+uT)*43758.5453); }
+    void main(){ vec4 c=texture2D(tDiffuse,vUv); vec2 d=vUv-.5; float v=smoothstep(.85,.25,length(d*vec2(1.,.8))); c.rgb*=mix(.62,1.,v); c.rgb+=(h(vUv*1000.)-.5)*uG; gl_FragColor=c; }`,
 };
 
 export class StudioLayer implements WorldLayer {
@@ -372,73 +374,8 @@ export class StudioLayer implements WorldLayer {
   }
   private drawLeft(dt: number) {
     const { x, c, t } = this.SL;
-    const k = c.width / 1024;
-    x.setTransform(k, 0, 0, k, 0, 0);
-    const W = 1024;
-    const H = 576;
-    const caps = this.caps.filter(Boolean);
-    if (this.leftMode === "works" && caps.length) {
-      this.worksT += dt;
-      x.fillStyle = "#08080a";
-      x.fillRect(0, 0, W, H);
-      const q = this.worksT / 1.8;
-      const i = Math.floor(q) % caps.length;
-      const f = smooth((q % 1) * 2.2 - 1.2);
-      for (let n = -2; n <= 2; n++) {
-        const j = (i + n + caps.length * 4) % caps.length;
-        const pos = n - f;
-        const sc = 0.62 - Math.abs(pos) * 0.14;
-        if (sc <= 0.2) continue;
-        const w = 760 * sc;
-        const h = (w * 9) / 16;
-        x.globalAlpha = 1 - Math.min(1, Math.abs(pos) * 0.45);
-        x.drawImage(caps[j], W / 2 - w / 2 + pos * 330, H / 2 - h / 2 - 10, w, h);
-      }
-      x.globalAlpha = 1;
-      x.fillStyle = "#fff";
-      x.font = '900 34px "Inter Tight Variable", sans-serif';
-      x.fillText("WORKS", 36, 56);
-      const cur = (i + (f > 0.5 ? 1 : 0)) % caps.length;
-      x.font = '500 13px "Martian Mono Variable", monospace';
-      x.fillStyle = "#ff3346";
-      x.fillText(`${String(cur + 1).padStart(2, "0")}/08 · ${(this.names[cur] ?? "").toUpperCase()}`, 36, H - 30);
-    } else {
-      x.fillStyle = "#cfd0d6";
-      x.fillRect(0, 0, W, H);
-      x.fillStyle = "#c3c4cc";
-      x.fillRect(0, 0, 230, H);
-      x.fillStyle = "#111";
-      x.font = '700 18px "Inter Tight Variable", sans-serif';
-      x.fillText("Notes", 22, 40);
-      x.font = '500 13px "Inter Tight Variable", sans-serif';
-      ["Portfolio v6", "Hero: dial + signal", "Studio scene", "Reel player", "4K captures"].forEach((s, i) => {
-        if (!i) {
-          x.fillStyle = "#b3b4bf";
-          x.fillRect(12, 64, 206, 28);
-        }
-        x.fillStyle = "#333";
-        x.fillText(s, 22, 83 + i * 34);
-      });
-      x.fillStyle = "#e4e5ea";
-      x.fillRect(260, 40, W - 300, 120);
-      x.fillStyle = "#555";
-      x.font = '400 13px "Inter Tight Variable", sans-serif';
-      ["Click the left monitor to open the works.", "Click the keyboard and type — the keys light up."].forEach((s, i) => x.fillText(s, 280, 80 + i * 24));
-      x.fillStyle = "#ececf0";
-      x.fillRect(260, 190, W - 300, 290);
-      x.strokeStyle = "#c20b21";
-      x.lineWidth = this.leftMode === "type" ? 3 : 1;
-      x.strokeRect(260, 190, W - 300, 290);
-      x.fillStyle = "#111";
-      x.font = '500 17px "Martian Mono Variable", monospace';
-      const lines = ("> " + this.typed).match(/.{1,52}/g) || ["> "];
-      const last = lines.slice(-10);
-      last.forEach((s, i) => x.fillText(s, 280, 226 + i * 26));
-      if (this.leftMode === "type" && ((performance.now() / 500) | 0) % 2) x.fillRect(280 + x.measureText(last[last.length - 1]).width + 3, 210 + (last.length - 1) * 26, 10, 20);
-      x.fillStyle = "#777";
-      x.font = '500 11px "Martian Mono Variable", monospace';
-      x.fillText(this.leftMode === "type" ? "TYPE · ESC TO EXIT" : "CLICK THE KEYBOARD TO TYPE", 280, 510);
-    }
+    if (this.leftMode === "works" && this.caps.some(Boolean)) this.worksT += dt;
+    drawLeftScreen(x, c.width / 1024, { mode: this.leftMode, typed: this.typed, worksT: this.worksT, caps: this.caps, names: this.names });
     t.needsUpdate = true;
   }
 

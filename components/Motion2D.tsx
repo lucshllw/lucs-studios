@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import { addTick } from "@/lib/loop";
+import { ui } from "@/lib/store";
 
 type Off = () => void;
 
@@ -32,7 +33,7 @@ function about(root: HTMLElement): Off {
     offs.push(() => window.removeEventListener("pointermove", mv));
     offs.push(
       addTick((t, dt) => {
-        if (document.hidden) return;
+        if (document.hidden || covered()) return;
         const r = photo.getBoundingClientRect();
         if (r.bottom < 0 || r.top > innerHeight) return;
         x += (tx - x) * Math.min(1, dt * 4);
@@ -79,7 +80,7 @@ function studio(root: HTMLElement): Off {
   offs.push(() => window.removeEventListener("pointermove", mv));
   offs.push(
     addTick((t, dt) => {
-      if (document.hidden) return;
+      if (document.hidden || covered()) return;
       x += (tx - x) * Math.min(1, dt * 3);
       y += (ty - y) * Math.min(1, dt * 3);
       drag += (Math.max(-160, Math.min(160, dx)) - drag) * Math.min(1, dt * 4);
@@ -87,82 +88,17 @@ function studio(root: HTMLElement): Off {
       const px = -x * 28 + Math.sin(t * 0.15) * 14 + drag * 0.3;
       const py = -y * 18 + Math.cos(t * 0.12) * 8;
       img.style.transform = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0) scale(1.12)`;
-      img.style.filter = `brightness(${(1 + Math.sin(t * 2.3) * 0.03 + Math.sin(t * 7.1) * 0.015).toFixed(3)})`;
+      // 26/11: sem o brilho pulsante (filter a cada quadro = repintar a foto inteira na CPU)
     })
   );
   return () => offs.forEach((o) => o());
 }
 
-function lab(root: HTMLElement): Off {
-  if (!root.classList.contains("lab-nogl")) return () => {};
-  const c = document.createElement("canvas");
-  c.className = "m2-lab";
-  c.setAttribute("aria-hidden", "true");
-  root.prepend(c);
-  const g = c.getContext("2d")!;
-  let w = 0, h = 0;
-  const N = innerWidth < 768 ? 420 : 900;
-  // pontos numa esfera (Fibonacci), girando; o ponteiro puxa o orbe (como a relíquia Orb em WebGL)
-  const P = Array.from({ length: N }, (_, i) => {
-    const yy = 1 - (i / (N - 1)) * 2;
-    const r = Math.sqrt(1 - yy * yy);
-    const th = i * 2.399963;
-    return { x: Math.cos(th) * r, y: yy, z: Math.sin(th) * r, n: Math.random() };
-  });
-  const size = () => {
-    w = c.width = innerWidth;
-    h = c.height = innerHeight;
-  };
-  size();
-  window.addEventListener("resize", size);
-  const ptr = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, down: 0 };
-  const mv = (e: PointerEvent) => {
-    ptr.tx = e.clientX / innerWidth;
-    ptr.ty = e.clientY / innerHeight;
-  };
-  const dn = () => (ptr.down = 1);
-  window.addEventListener("pointermove", mv, { passive: true });
-  window.addEventListener("pointerdown", dn);
-  let acc = 0;
-  const untick = addTick((t, dt) => {
-    if (document.hidden) return;
-    ptr.x += (ptr.tx - ptr.x) * Math.min(1, dt * 3);
-    ptr.y += (ptr.ty - ptr.y) * Math.min(1, dt * 3);
-    ptr.down = Math.max(0, ptr.down - dt * 1.5);
-    acc += dt;
-    if (acc < 1 / 30) return;
-    acc = 0;
-    g.clearRect(0, 0, w, h);
-    const R = Math.min(w, h) * (0.24 + ptr.down * 0.05);
-    const cx = w / 2 + (ptr.x - 0.5) * w * 0.18;
-    const cy = h * 0.46 + (ptr.y - 0.5) * h * 0.14;
-    const ay = t * 0.25 + (ptr.x - 0.5) * 1.2;
-    const ax = (ptr.y - 0.5) * 0.8;
-    const ca = Math.cos(ay), sa = Math.sin(ay), cb = Math.cos(ax), sb = Math.sin(ax);
-    for (const p of P) {
-      const noise = 1 + Math.sin(t * 1.6 + p.n * 12 + p.y * 4) * 0.08 + ptr.down * 0.25 * Math.sin(p.n * 40);
-      let x = p.x * ca - p.z * sa;
-      let z = p.x * sa + p.z * ca;
-      const y = p.y * cb - z * sb;
-      z = p.y * sb + z * cb;
-      x *= noise;
-      const k = 1.6 / (2.6 - z);
-      const sx = cx + x * R * k;
-      const sy = cy + y * R * noise * k;
-      const a = 0.25 + (z + 1) * 0.35;
-      g.fillStyle = z > 0.55 && p.n < 0.3 ? `rgba(255,42,42,${a})` : `rgba(235,235,235,${a})`;
-      const s = 1 + (z + 1) * 0.8;
-      g.fillRect(sx, sy, s, s);
-    }
-  });
-  return () => {
-    untick();
-    window.removeEventListener("resize", size);
-    window.removeEventListener("pointermove", mv);
-    window.removeEventListener("pointerdown", dn);
-    c.remove();
-  };
-}
+/** 26/11: menu/reel/perfil opacos cobrindo a página — sem desenhar por baixo (sem GPU cada quadro é caro) */
+const covered = () => {
+  const s = ui.get();
+  return !!(s.menu || s.reel || s.profile);
+};
 
 export function Motion2D() {
   const path = usePathname();
@@ -176,7 +112,7 @@ export function Motion2D() {
       if (!main) return;
       if (main.classList.contains("about")) off = about(main);
       else if (main.classList.contains("studio")) off = studio(main);
-      else if (main.classList.contains("lab")) off = lab(main);
+      // 26/11: o Lab sem WebGL agora é do próprio Lab (lib/lab2d: as 4 relíquias)
     }, 120);
     return () => {
       clearTimeout(id);

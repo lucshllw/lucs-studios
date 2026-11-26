@@ -2,25 +2,28 @@
 // Adaptado de React Bits · SplitText (TS-CSS, MIT + Commons Clause, https://reactbits.dev).
 // Mudanças: sem GSAP SplitText/ScrollTrigger; o progresso vem de --in (useInProgress, scrub reversível no ticker);
 // cada letra sobe e decodifica de um glifo ASCII. Texto real no aria-label; spans aria-hidden. Reduced-motion = final.
-import { createElement, type CSSProperties } from "react";
+import { Fragment, createElement, type CSSProperties } from "react";
 
 type Tag = "h1" | "h2" | "h3" | "p" | "span";
 export function SplitText({ text, tag = "h2", className = "", style }: { text: string; tag?: Tag; className?: string; style?: CSSProperties }) {
   const words = text.split(" ");
   let i = 0;
   const n = text.replace(/\s/g, "").length;
+  // 26/11: o espaço fica FORA do inline-block da palavra (dentro dele era descartado como espaço final → "SELECTEDWORK")
   const children = words.map((w, wi) => (
-    <span className="st-w" key={wi}>
-      {[...w].map((ch) => {
-        const k = i++;
-        return (
-          <span className="st-c" key={k} style={{ "--i": k / Math.max(1, n - 1) } as CSSProperties} data-ch={ch}>
-            {ch}
-          </span>
-        );
-      })}
+    <Fragment key={wi}>
+      <span className="st-w">
+        {[...w].map((ch) => {
+          const k = i++;
+          return (
+            <span className="st-c" key={k} style={{ "--i": k / Math.max(1, n - 1) } as CSSProperties} data-ch={ch}>
+              {ch}
+            </span>
+          );
+        })}
+      </span>
       {wi < words.length - 1 ? " " : null}
-    </span>
+    </Fragment>
   ));
   return createElement(
     tag,

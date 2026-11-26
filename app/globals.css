@@ -1141,6 +1141,14 @@ html.js .intro.is-done {
 }
 .cv-contact a {
   text-underline-offset: 4px;
+  position: relative;
+}
+/* 26/11: área de toque ≥ 24 px sem mudar o layout (WCAG 2.5.8) */
+.cv-contact a::after,
+.st-credit a::after {
+  content: "";
+  position: absolute;
+  inset: -4px -2px;
 }
 .cv-contact a:hover {
   color: var(--c-ember);
@@ -3250,7 +3258,6 @@ html.route-works .works-main > .sidx {
 .st-fallback {
   display: none;
 }
-html:not(.gl) .st-fallback,
 .studio-nogl .st-fallback {
   display: block;
   position: absolute;
@@ -3260,9 +3267,32 @@ html:not(.gl) .st-fallback,
   object-fit: cover;
   opacity: 0.55;
 }
-html:not(.gl) .st-stage,
 .studio-nogl .st-stage {
   display: none;
+}
+/* 26/11 — modo filme do Studio (sem aceleração de hardware): quadros da cena real em canvas 2D */
+.st-film,
+.st-film-grain {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.st-film-grain {
+  background-repeat: repeat;
+  background-size: 128px 128px;
+}
+.st-film-left {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1024px;
+  height: 576px;
+  transform-origin: 0 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s linear;
 }
 .st-head,
 .lab-head {
@@ -3357,8 +3387,7 @@ html:not(.gl) .st-stage,
   transform-origin: left;
 }
 .st-load.done,
-.studio-nogl .st-load,
-html:not(.gl) .st-load {
+.studio-nogl .st-load {
   opacity: 0;
 }
 .st-label {
@@ -3403,6 +3432,10 @@ html:not(.gl) .st-load {
 .st-credit a {
   text-decoration: underline;
   text-underline-offset: 3px;
+  position: relative;
+}
+.st-credit a::after {
+  inset: -8px -3px;
 }
 .st-credit a:hover,
 .st-credit a:focus-visible {

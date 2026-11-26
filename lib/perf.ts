@@ -21,24 +21,32 @@ export function startPerfProbe() {
   } catch {
     /* sem storage */
   }
+  // 26/11: o teste antigo (0,5 s a partir de 1,5 s) pegava o pico de carga (ex.: GLB do Studio) e rebaixava máquinas com GPU.
+  // Agora: espera 4 s, mede janelas de 1 s e só liga o LITE com duas janelas seguidas abaixo de 30 fps.
   let t0 = -1;
   let n = 0;
+  let low = 0;
+  let done = false;
   addTick((time, dt) => {
     lastDt = dt * 1000;
-    if (forced !== null || isLite()) return;
+    if (done || forced !== null || isLite()) return;
     if (t0 < 0) {
-      if (time < 1.5) return; // espera a carga assentar
+      if (time < 4) return; // espera a carga assentar
       t0 = time;
       n = 0;
       return;
     }
-    if (t0 > 0) {
-      n++;
-      if (time - t0 >= 0.5) {
-        const fps = n / (time - t0);
-        if (fps < 30) document.documentElement.classList.add("lite");
-        t0 = 0; // teste único
+    n++;
+    if (time - t0 >= 1) {
+      const fps = n / (time - t0);
+      if (fps < 30) low++;
+      else done = true;
+      if (low >= 2) {
+        document.documentElement.classList.add("lite");
+        done = true;
       }
+      t0 = time;
+      n = 0;
     }
   });
 }

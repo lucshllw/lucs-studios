@@ -7,6 +7,7 @@ import { reducedMotion, tier } from "@/lib/motion";
 import { ui } from "@/lib/store";
 import { getWorld } from "@/lib/world/World";
 import { LabLayer, RELICS, type LabMode } from "@/lib/world/LabLayer";
+import { createLab2D, type Lab2D } from "@/lib/lab2d";
 
 let layer: LabLayer | null = null;
 
@@ -20,8 +21,17 @@ export function Lab() {
   const [cut, setCut] = useState(false);
   const [gl, setGl] = useState(true);
   const enterBtns = useRef<(HTMLButtonElement | null)[]>([]);
+  const lab2 = useRef<Lab2D | null>(null);
+  const sel2 = useRef(0);
 
   const L = () => layer;
+  /** sem WebGL: escolhe a relíquia 2D */
+  const pick2d = (i: number) => {
+    const n = (i + RELICS.length) % RELICS.length;
+    sel2.current = n;
+    setSel(n);
+    lab2.current?.set(n);
+  };
   const go = (m: LabMode) => {
     const l = L();
     if (!l) return;
@@ -41,7 +51,22 @@ export function Lab() {
       void world.warm(layer, layer.warmList());
     }
     window.setTimeout(() => window.dispatchEvent(new Event("rito:ready")), 0);
-    if (!layer) return;
+    if (!layer) {
+      // 26/11: sem WebGL as 4 relíquias rodam em Canvas 2D (lib/lab2d) e os botões/setas funcionam
+      const l2 = createLab2D(el, reduced);
+      lab2.current = l2;
+      const onKey2 = (e: KeyboardEvent) => {
+        if (ui.get().menu || ui.get().profile || ui.get().intro || (e.target as HTMLElement).closest?.("input")) return;
+        if (e.key === "ArrowRight") pick2d(sel2.current + 1);
+        if (e.key === "ArrowLeft") pick2d(sel2.current - 1);
+      };
+      window.addEventListener("keydown", onKey2);
+      return () => {
+        window.removeEventListener("keydown", onKey2);
+        l2.destroy();
+        lab2.current = null;
+      };
+    }
     const Ly = layer;
     Ly.reduced = reduced;
     Ly.els = {
@@ -136,7 +161,7 @@ export function Lab() {
             <span>{R.sub}</span>
           </p>
           <div className="lab-row" role="group" aria-label="Relics">
-            <button type="button" className="chip" aria-label="Previous relic" onClick={() => L()?.select(sel - 1)}>
+            <button type="button" className="chip" aria-label="Previous relic" onClick={() => (gl ? L()?.select(sel - 1) : pick2d(sel - 1))}>
               ←
             </button>
             {RELICS.map((r, i) => (
@@ -146,9 +171,9 @@ export function Lab() {
                 type="button"
                 className="chip"
                 aria-pressed={i === sel}
-                disabled={!gl}
-                onFocus={() => L()?.select(i)}
+                onFocus={() => gl && L()?.select(i)}
                 onClick={() => {
+                  if (!gl) return pick2d(i);
                   L()?.select(i);
                   go(r.id);
                 }}
@@ -156,13 +181,13 @@ export function Lab() {
                 {r.name}
               </button>
             ))}
-            <button type="button" className="chip" aria-label="Next relic" onClick={() => L()?.select(sel + 1)}>
+            <button type="button" className="chip" aria-label="Next relic" onClick={() => (gl ? L()?.select(sel + 1) : pick2d(sel + 1))}>
               →
             </button>
           </div>
           {!gl && (
             <ul className="lab-note">
-              <li>Without WebGL (hardware acceleration off) the relics run as a 2D particle study; enable it for the full corridor.</li>
+              <li>Without WebGL (hardware acceleration off) each relic runs as a lighter 2D study — pick one above{sel === 2 ? " and type a word" : ""}; turn acceleration on for the full 3D corridor.</li>
               {RELICS.map((r) => (
                 <li key={r.id}>
                   <b>{r.name}</b> — {r.sub}

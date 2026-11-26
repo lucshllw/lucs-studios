@@ -284,8 +284,10 @@ export class World {
     const vh = window.innerHeight;
     this.vw = vw;
     this.vh = vh;
-    // LITE (sem GPU): 0,6 — o custo do SwiftShader é proporcional aos pixels
-    const dpr = document.documentElement.classList.contains("lite") ? 0.6 : this.tierLevel === 1 ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    // SOFT (WebGL por software, 26/11): a resolução é regulada pelo desempenho medido (govern), começando em 1
+    // LITE (máquina lenta com GPU): 0,6
+    const html = document.documentElement.classList;
+    const dpr = html.contains("soft") ? this.softDpr : html.contains("lite") ? 0.6 : this.tierLevel === 1 ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(vw, vh, false);
     this.rt.setSize(Math.floor(vw * dpr), Math.floor(vh * dpr));
@@ -773,8 +775,9 @@ export class World {
     if (!this.alive || this.mode === "off" || !this.L || document.hidden) return;
     if (introCover.on && !this.grabReq) return; // intro opaca cobrindo: sem quadros invisíveis (TBT da carga)
     if (ui.get().menu) return; // Menu opaco aberto: o clique no item responde sem disputar o thread com o WebGL
-    // LITE (sem GPU / máquina lenta): no máximo ~30 quadros/s
-    if (document.documentElement.classList.contains("lite")) {
+    if (this.soft) this.govern(time);
+    // LITE (máquina lenta): no máximo ~30 quadros/s
+    else if (document.documentElement.classList.contains("lite")) {
       if (time - this.liteT < 1 / 31) return;
       dt = Math.min(0.1, time - this.liteT);
       this.liteT = time;
@@ -832,6 +835,8 @@ export class World {
       u.uS.value = this.cardS(i);
       u.uBend.value = this.bend;
       u.uTime.value = this.reduced ? 0 : time;
+      // SOFT: cards fora do quadro não são desenhados (cada card tem ~3 mil triângulos; na CPU isso pesa)
+      if (this.soft) c.mesh.visible = !(this.mode === "featured" && this.openIndex !== i && u.uOpen.value < 0.02 && Math.abs(u.uS.value / this.L.R) > this.softCull);
     });
 
     if (this.mode === "featured" && this.openIndex < 0) this.updateVideos();
@@ -876,6 +881,57 @@ export class World {
   /** quadro atual do canvas para o snapshot da transição (lido no mesmo quadro do render) */
   forceFrame = false;
   private liteT = 0;
+  // ---------- SOFT: regulador de resolução ----------
+  // O custo do SwiftShader é proporcional aos pixels. Em vez de um 0,6 fixo (imagem mole em máquinas que aguentariam
+  // mais), mede janelas de 1 s: abaixo de 33 quadros/s a resolução cai 12 %; acima de 50 por 3 janelas, sobe 8 %.
+  // Limites 0,5–1. `?sdpr=0.8` fixa o valor (testes). O valor da última página é reaproveitado na seguinte.
+  private soft = typeof document !== "undefined" && document.documentElement.classList.contains("soft");
+  softDpr = ((): number => {
+    if (typeof window === "undefined") return 1;
+    const q = window.location.search.match(/[?&]sdpr=([\d.]+)/);
+    return q ? Math.min(1, Math.max(0.3, parseFloat(q[1]))) : 1;
+  })();
+  private softFixed = typeof window !== "undefined" && /[?&]sdpr=/.test(window.location.search);
+  private gov = { t0: -1, n: 0, good: 0, mode: "" as string };
+  softCull = ((): number => {
+    const q = typeof window !== "undefined" ? window.location.search.match(/[?&]scull=([\d.]+)/) : null;
+    return q ? parseFloat(q[1]) : 1.3;
+  })();
+  private govern(time: number) {
+    const g = this.gov;
+    if (g.mode !== this.mode) {
+      // página nova: o 1º segundo (compilação de shaders, texturas) não conta
+      g.mode = this.mode;
+      g.t0 = time + 1;
+      g.n = 0;
+      g.good = 0;
+      return;
+    }
+    if (time < g.t0) return;
+    g.n++;
+    const span = time - g.t0;
+    if (span < 1) return;
+    const fps = g.n / span;
+    g.t0 = time;
+    g.n = 0;
+    (window as unknown as { __soft?: { dpr: number; fps: number } }).__soft = { dpr: this.softDpr, fps: Math.round(fps) };
+    if (this.softFixed) return;
+    let next = this.softDpr;
+    if (fps < 33) {
+      next = Math.max(0.5, this.softDpr * (fps < 20 ? 0.78 : 0.88));
+      g.good = 0;
+    } else if (fps > 50) {
+      if (++g.good >= 3) {
+        next = Math.min(1, this.softDpr * 1.08);
+        g.good = 0;
+      }
+    } else g.good = 0;
+    if (Math.abs(next - this.softDpr) > 0.005) {
+      this.softDpr = next;
+      this.resize();
+      g.t0 = time + 0.4; // deixa a troca de resolução assentar
+    }
+  }
   private grabReq: ((c: HTMLCanvasElement | null) => void) | null = null;
   grab(draw: (c: HTMLCanvasElement | null) => void) {
     if (this.mode === "off" || document.hidden || this.canvas.style.visibility === "hidden") return draw(null);
@@ -1002,6 +1058,7 @@ export function getWorld(opts: { tier: 1 | 2; reduced: boolean }) {
   if (!canvas) return null;
   try {
     world = new World(canvas, opts);
+    if (/[?&]cap=1/.test(window.location.search)) (window as unknown as { __world?: World }).__world = world; // medições / captura
   } catch {
     world = null;
   }
